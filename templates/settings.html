@@ -1,0 +1,1019 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Settings — manager-kecil</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/studio.css') }}">
+<style>
+  .ch-cell { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .ch-name { font-weight: 500; }
+  .link-box { display: flex; gap: 8px; margin-top: 12px; }
+  .link-box .st-input { font-family: var(--mono); font-size: 13px; }
+  .gal-section .st-card-head { padding: 12px 16px 12px 20px; }
+  .gal-progress { position: relative; overflow: hidden; }
+  .gal-progress .bar { position: absolute; inset: 0 auto 0 0; width: 0; background: rgba(62,166,255,.25); transition: width .2s; }
+  .gal-progress span { position: relative; }
+  .titles-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  .fb-mark { width: 40px; height: 40px; border-radius: 50%; background: #1877f2; color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 18px; flex-shrink: 0; }
+  @media (max-width: 900px) { .titles-layout { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body class="studio">
+{% set active = 'settings' %}{% include '_studio_shell.html' %}
+
+<main class="st-main">
+<div class="st-container">
+  <h1 class="st-page-title">Settings</h1>
+  <p class="st-page-sub">Kelola channel, koneksi platform, aset, dan bank judul.</p>
+
+  <div class="st-tabs" role="tablist">
+    <button class="st-tab tab-btn active" data-tab="youtube" onclick="switchTab('youtube')">Channel YouTube</button>
+    <button class="st-tab tab-btn" data-tab="facebook" onclick="switchTab('facebook')">Facebook</button>
+    <button class="st-tab tab-btn" data-tab="gallery" onclick="switchTab('gallery')">Galeri Aset</button>
+    <button class="st-tab tab-btn" data-tab="titles" onclick="switchTab('titles')">Bank Judul</button>
+    <button class="st-tab tab-btn" data-tab="system" onclick="switchTab('system')">Sistem</button>
+  </div>
+
+  <!-- ============ CHANNEL YOUTUBE ============ -->
+  <section id="tab-youtube" class="tab-panel st-stack">
+    <div class="st-section-head">
+      <div>
+        <h2 class="st-section-title">Channel terhubung</h2>
+        <p class="st-card-sub">Setiap channel memakai client_secret.json miliknya sendiri.</p>
+        <span id="api-badge" class="st-chip" style="margin-top:6px">Mengecek…</span>
+      </div>
+      <div class="st-row">
+        <button class="st-btn st-btn-text" onclick="exportChannels()">Export</button>
+        <button class="st-btn st-btn-text" onclick="document.getElementById('importFile').click()">Import</button>
+        <input type="file" id="importFile" accept=".json" class="hidden" onchange="importChannels(event)">
+        <button class="st-btn st-btn-primary" onclick="generateTVLink()">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>Tautkan channel
+        </button>
+      </div>
+    </div>
+
+    <!-- Panel aktivasi -->
+    <div id="tv-box" class="st-callout hidden">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:500" id="tv-title">Aktivasi channel</div>
+        <div class="st-muted" id="tv-msg"></div>
+        <ol class="st-steps" id="tv-steps">
+          <li>Salin link di bawah, buka di browser yang sudah login ke akun channel target.</li>
+          <li>Masukkan kode yang muncul di halaman itu ke Google, lalu izinkan akses.</li>
+          <li>Halaman akan kembali otomatis setelah berhasil.</li>
+        </ol>
+        <div class="link-box" id="tv-link-row">
+          <input type="text" id="tv-url" class="st-input" readonly>
+          <button class="st-btn st-btn-primary" onclick="copyTvUrl()">Salin</button>
+          <a class="st-btn" id="tv-open" href="#" target="_blank" rel="noopener">Buka</a>
+        </div>
+      </div>
+      <button class="st-icon-btn" aria-label="Tutup" onclick="document.getElementById('tv-box').classList.add('hidden')">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+      </button>
+    </div>
+
+    <div class="st-card" style="overflow-x:auto">
+      <table class="st-table">
+        <thead><tr><th>Channel</th><th class="hide-sm">Client ID</th><th class="hide-sm">Status</th><th class="col-actions" style="text-align:right">Aksi</th></tr></thead>
+        <tbody id="yt-channel-list"><tr><td colspan="4" class="st-empty">Memuat channel…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ FACEBOOK ============ -->
+  <section id="tab-facebook" class="tab-panel st-stack hidden">
+    <div class="st-section-head">
+      <div>
+        <h2 class="st-section-title">Halaman Facebook</h2>
+        <p class="st-card-sub">Nama halaman diambil otomatis dari Meta.</p>
+      </div>
+      <button class="st-btn st-btn-primary" onclick="toggleFbForm()">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>Tautkan halaman
+      </button>
+    </div>
+
+    <div id="fb-form-box" class="st-card hidden">
+      <div class="st-card-head">
+        <div>
+          <h3 class="st-card-title">Tautkan halaman baru</h3>
+          <p class="st-card-sub">Gunakan Page Access Token permanen (long-lived).</p>
+        </div>
+        <button class="st-icon-btn" aria-label="Tutup" onclick="toggleFbForm()">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </div>
+      <div class="st-card-body st-stack">
+        <div class="st-field">
+          <label class="st-label" for="fb-page-id">Page ID</label>
+          <input type="text" id="fb-page-id" class="st-input" placeholder="1029384756…">
+        </div>
+        <div class="st-field">
+          <label class="st-label" for="fb-access-token">Page Access Token</label>
+          <textarea id="fb-access-token" rows="3" class="st-textarea" placeholder="EAAG…"></textarea>
+        </div>
+        <div class="st-row" style="justify-content:flex-end">
+          <button class="st-btn st-btn-text" onclick="toggleFbForm()">Batal</button>
+          <button type="button" class="st-btn st-btn-primary" onclick="saveFacebookConfig(event)">Simpan &amp; hubungkan</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="st-card" style="overflow-x:auto">
+      <table class="st-table">
+        <thead><tr><th>Halaman</th><th class="hide-sm">Status</th><th class="col-actions" style="text-align:right">Aksi</th></tr></thead>
+        <tbody id="fb-page-list"><tr><td colspan="3" class="st-empty">Memuat halaman…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ GALERI ASET ============ -->
+  <section id="tab-gallery" class="tab-panel st-stack hidden">
+    <div class="st-section-head">
+      <h2 class="st-section-title">Galeri aset</h2>
+      <div style="min-width:240px">
+        <select id="gallery-channel-select" class="st-select" onchange="loadGallery()" aria-label="Pilih channel">
+          <option value="">Pilih channel…</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="gallery-empty-hint" class="st-card st-empty"><b>Pilih channel</b>Aset (audio, background, thumbnail, video) disimpan per channel.</div>
+
+    <div id="gallery-content" class="st-stack hidden">
+      <div class="st-stats">
+        <div class="st-stat"><div class="st-stat-label">Audio non-CID</div><div class="st-stat-value" id="count-audio-non">–</div></div>
+        <div class="st-stat"><div class="st-stat-label">Audio CID</div><div class="st-stat-value" id="count-audio-cid">–</div></div>
+        <div class="st-stat"><div class="st-stat-label">Background 16:9</div><div class="st-stat-value" id="count-background">–</div></div>
+        <div class="st-stat"><div class="st-stat-label">Background 9:16</div><div class="st-stat-value" id="count-shorts_bg">–</div></div>
+        <div class="st-stat"><div class="st-stat-label">Thumbnail</div><div class="st-stat-value" id="count-thumbnails">–</div></div>
+        <div class="st-stat"><div class="st-stat-label">Video sumber</div><div class="st-stat-value" id="count-base_video">–</div></div>
+      </div>
+      <div id="gallery-sections" class="st-stack"></div>
+    </div>
+  </section>
+
+  <!-- ============ BANK JUDUL ============ -->
+  <section id="tab-titles" class="tab-panel st-stack hidden">
+    <div class="st-section-head">
+      <h2 class="st-section-title">Bank judul</h2>
+      <div style="min-width:240px">
+        <select id="title-ch-sel" onchange="loadTitleBank()" class="st-select" aria-label="Pilih channel">
+          <option value="">Pilih channel…</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="titles-layout">
+      <div class="st-card">
+        <div class="st-card-head">
+          <div>
+            <h3 class="st-card-title">Judul tersimpan</h3>
+            <p class="st-card-sub" id="title-bank-count">0 judul tersimpan</p>
+          </div>
+          <div class="st-row">
+            <button class="st-btn st-btn-sm" onclick="document.getElementById('title-file-input').click()">Upload .txt</button>
+            <input type="file" id="title-file-input" accept=".txt" class="hidden" onchange="uploadTitleBank(event)">
+            <button class="st-btn st-btn-sm st-btn-danger" onclick="clearTitleBank()">Kosongkan</button>
+          </div>
+        </div>
+        <div class="st-list" id="title-list">
+          <div class="st-empty">Pilih channel, lalu upload file .txt (satu judul per baris).</div>
+        </div>
+        <div class="st-card-body" style="border-top:1px solid var(--border)">
+          <div class="st-row" style="flex-wrap:nowrap">
+            <input type="text" id="manual-title-input" class="st-input" placeholder="Tambah judul manual…" onkeydown="if(event.key==='Enter')addManualTitle()">
+            <button class="st-btn st-btn-primary" onclick="addManualTitle()">Tambah</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="st-stack">
+        <div class="st-card">
+          <div class="st-card-head">
+            <div>
+              <h3 class="st-card-title">Generator</h3>
+              <p class="st-card-sub">Merakit judul baru dari bank.</p>
+            </div>
+          </div>
+          <div class="st-card-body st-stack">
+            <div class="st-grid-2">
+              <div class="st-field">
+                <label class="st-label" for="gen-count">Jumlah</label>
+                <input type="number" id="gen-count" value="10" min="1" max="100" class="st-input">
+              </div>
+              <div class="st-field">
+                <label class="st-label" for="gen-sep">Pemisah</label>
+                <select id="gen-sep" class="st-select">
+                  <option value=" - ">— (dash)</option>
+                  <option value=" | ">| (pipe)</option>
+                  <option value=" : ">: (titik dua)</option>
+                  <option value=" ">(spasi)</option>
+                </select>
+              </div>
+            </div>
+            <div class="st-field">
+              <label class="st-label" for="gen-mode">Mode</label>
+              <select id="gen-mode" class="st-select">
+                <option value="recombine">Recombine — gabungkan bagian judul</option>
+                <option value="shuffle">Shuffle — acak dari bank</option>
+                <option value="ai_style">Variasi — tambah kata pelengkap</option>
+              </select>
+            </div>
+            <button class="st-btn st-btn-primary" style="width:100%" onclick="generateTitles()">Generate</button>
+          </div>
+        </div>
+
+        <div class="st-card hidden" id="gen-result-card">
+          <div class="st-card-head">
+            <div>
+              <h3 class="st-card-title">Hasil</h3>
+              <p class="st-card-sub" id="gen-result-count">0 judul baru</p>
+            </div>
+            <button class="st-btn st-btn-sm" onclick="saveAllGenerated()">Simpan semua</button>
+          </div>
+          <div class="st-list" id="gen-results"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SISTEM ============ -->
+  <section id="tab-system" class="tab-panel st-stack hidden">
+    <div class="st-card">
+      <div class="st-card-head">
+        <div>
+          <h3 class="st-card-title">Pembaruan aplikasi</h3>
+          <p class="st-card-sub">Ambil versi terbaru dari GitHub lalu restart otomatis.</p>
+        </div>
+        <span id="upd-chip" class="st-chip">Mengecek…</span>
+      </div>
+      <div class="st-card-body st-stack">
+        <div>
+          <div class="st-label">Versi terpasang</div>
+          <div id="upd-current" class="st-mono" style="margin-top:4px">–</div>
+        </div>
+        <div id="upd-msg" class="st-muted hidden"></div>
+        <div id="upd-changes-wrap" class="hidden">
+          <div class="st-label" style="margin-bottom:6px">Perubahan baru</div>
+          <div id="upd-changes" class="st-list" style="border:1px solid var(--border);border-radius:8px"></div>
+        </div>
+        <pre id="upd-log" class="st-mono hidden" style="margin:0;padding:12px;border-radius:8px;background:var(--bg);white-space:pre-wrap"></pre>
+        <div class="st-row" style="justify-content:flex-end">
+          <button type="button" class="st-btn st-btn-text" id="upd-check-btn" onclick="checkUpdate()">Cek pembaruan</button>
+          <button type="button" class="st-btn st-btn-primary" id="upd-start-btn" onclick="startUpdate()" disabled>Perbarui sekarang</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="st-card">
+      <div class="st-card-head">
+        <div>
+          <h3 class="st-card-title">Notifikasi Telegram</h3>
+          <p class="st-card-sub">Laporan saat render selesai/gagal dan pengingat stok jadwal video.</p>
+        </div>
+      </div>
+      <div class="st-card-body st-stack">
+        <div class="st-grid-2">
+          <div class="st-field">
+            <label class="st-label" for="tg-token">Bot token</label>
+            <input type="password" id="tg-token" class="st-input" placeholder="123456789:ABCDEF…" autocomplete="off">
+          </div>
+          <div class="st-field">
+            <label class="st-label" for="tg-chatid">Chat ID</label>
+            <input type="text" id="tg-chatid" class="st-input" placeholder="987654321">
+          </div>
+        </div>
+        <div class="st-row" style="justify-content:flex-end">
+          <button type="button" class="st-btn st-btn-primary" onclick="saveTgConfig()">Simpan &amp; kirim tes</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+</main>
+
+<script src="{{ url_for('static', filename='js/studio.js') }}"></script>
+<script>
+const { toast, confirmDialog, esc } = window.Studio;
+let channelsCache = [];
+let titleBankData = {};
+let generatedTitles = [];
+let currentTitleCh = '';
+let fbPagesCache = [];
+
+const ICONS = {
+  key: 'M12.65 10A6 6 0 1 0 12.65 14H17v4h4v-4h2v-4H12.65zM7 14a2 2 0 1 1 0-4 2 2 0 0 1 0 4z',
+  link: 'M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7a5 5 0 0 0 0 10h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4a5 5 0 0 0 0-10z',
+  stop: 'M6 6h12v12H6z',
+  del: 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z',
+  close: 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z',
+  add: 'M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z',
+};
+const icon = (k) => `<svg viewBox="0 0 24 24" fill="currentColor"><path d="${ICONS[k]}"/></svg>`;
+const iconBtn = (k, label, onclick, extra = '') =>
+  `<button class="st-icon-btn ${extra}" title="${label}" aria-label="${label}" onclick="${onclick}">${icon(k)}</button>`;
+
+const GALLERY_TYPES = [
+  { key: 'audio_non_cid', label: 'Audio non-CID',                 type: 'audio_non_cid' },
+  { key: 'audio_cid',     label: 'Audio CID',                     type: 'audio_cid' },
+  { key: 'background',    label: 'Background Factory (16:9)',     type: 'background' },
+  { key: 'shorts_bg',     label: 'Background Shorts (9:16)',      type: 'shorts_bg' },
+  { key: 'thumbnails',    label: 'Thumbnail Factory (1280×720)',  type: 'thumbnail' },
+  { key: 'shorts_thumb',  label: 'Thumbnail Shorts (9:16)',       type: 'shorts_thumb' },
+  { key: 'base_video',    label: 'Video sumber utuh (MP4)',       type: 'base_video' },
+];
+
+function switchTab(name) {
+  if (name === 'system' && !updChecked) checkUpdate();
+  document.querySelectorAll('.tab-panel').forEach(el => el.classList.add('hidden'));
+  document.getElementById('tab-' + name).classList.remove('hidden');
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.toggle('active', el.dataset.tab === name));
+  try { history.replaceState(null, '', '#' + name); } catch (e) {}
+}
+
+// ───────── CHANNEL YOUTUBE ─────────
+async function loadChannels() {
+  try {
+    const res = await fetch('/api/get_channels');
+    channelsCache = await res.json();
+    renderChannelList();
+    renderChannelSelect();
+  } catch (e) {
+    document.getElementById('yt-channel-list').innerHTML = `<tr><td colspan="4" class="st-empty">Gagal memuat channel: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+function channelStatus(c) {
+  if (c.needs_relink) return '<span class="st-chip warn">Perlu tautkan ulang</span>';
+  if (!c.client_id || !c.has_secret) return '<span class="st-chip err">Secret belum ada</span>';
+  if (String(c.status || '').includes('Connected')) return '<span class="st-chip ok">Terhubung</span>';
+  return `<span class="st-chip">${esc(c.status || '-')}</span>`;
+}
+
+function avatar(c) {
+  const initial = esc((c.name || '?').trim().charAt(0).toUpperCase());
+  if (!c.thumbnail) return `<div class="st-avatar st-avatar-fallback">${initial}</div>`;
+  return `<img src="${esc(c.thumbnail)}" alt="" class="st-avatar" onerror="this.outerHTML='<div class=&quot;st-avatar st-avatar-fallback&quot;>${initial}</div>'">`;
+}
+
+function renderChannelList() {
+  const wrap = document.getElementById('yt-channel-list');
+  if (!channelsCache.length) {
+    wrap.innerHTML = `<tr><td colspan="4" class="st-empty"><b>Belum ada channel</b>Klik "Tautkan channel" lalu pilih file client_secret.json.</td></tr>`;
+    return;
+  }
+  wrap.innerHTML = channelsCache.map((c, i) => `
+    <tr>
+      <td>
+        <div class="ch-cell">
+          ${avatar(c)}
+          <div style="min-width:0">
+            <div class="ch-name st-ellipsis">${esc(c.name)}</div>
+            <div class="st-mono st-ellipsis">${esc(c.yt_id)}</div>
+            <div class="show-sm" style="margin-top:4px">${channelStatus(c)}</div>
+          </div>
+        </div>
+      </td>
+      <td class="hide-sm"><div class="st-mono st-ellipsis" style="max-width:260px" title="${esc(c.client_id || '')}">${c.client_id ? esc(c.client_id) : '—'}</div></td>
+      <td class="hide-sm">${channelStatus(c)}</td>
+      <td class="col-actions">
+        <div class="st-row-actions">
+          ${iconBtn('key', 'Ganti client_secret', `pickSecret(channelsCache[${i}].yt_id)`)}
+          ${iconBtn('link', 'Tautkan ulang', `generateTVLink(channelsCache[${i}].yt_id)`)}
+          ${iconBtn('stop', 'Hentikan antrean', `stopChannelTasks(channelsCache[${i}].yt_id, channelsCache[${i}].name)`)}
+          ${iconBtn('del', 'Hapus channel', `deleteChannel(channelsCache[${i}].yt_id, channelsCache[${i}].name)`, 'danger')}
+        </div>
+      </td>
+    </tr>`).join('');
+}
+
+function renderChannelSelect() {
+  for (const [id, placeholder] of [['gallery-channel-select', 'Pilih channel…'], ['title-ch-sel', 'Pilih channel…']]) {
+    const sel = document.getElementById(id);
+    if (!sel) continue;
+    const current = sel.value;
+    sel.innerHTML = `<option value="">${placeholder}</option>` +
+      channelsCache.map(c => `<option value="${esc(c.yt_id)}">${esc(c.name)}</option>`).join('');
+    if (current) sel.value = current;
+  }
+  channelsCache.forEach(c => { if (c.title_bank) titleBankData[c.yt_id] = c.title_bank; });
+}
+
+function checkApiStatus() {
+  fetch('/api/check_secret?t=' + Date.now()).then(r => r.json()).then(d => {
+    const b = document.getElementById('api-badge');
+    b.textContent = d.exists ? 'Secret tersedia' : 'Belum ada secret';
+    b.className = 'st-chip ' + (d.exists ? 'ok' : 'err');
+  }).catch(() => {});
+}
+
+function showTvLink(d, channelName) {
+  const box = document.getElementById('tv-box');
+  box.classList.remove('hidden');
+  box.classList.toggle('err', !!d.error);
+  document.getElementById('tv-title').textContent = d.error ? 'Tidak bisa membuat link' : (channelName ? `Tautkan ulang: ${channelName}` : 'Tautkan channel baru');
+  document.getElementById('tv-msg').textContent = d.error || '';
+  document.getElementById('tv-steps').classList.toggle('hidden', !!d.error);
+  document.getElementById('tv-link-row').classList.toggle('hidden', !!d.error);
+  if (!d.error) {
+    document.getElementById('tv-url').value = d.auth_url;
+    document.getElementById('tv-open').href = d.auth_url;
+  }
+  box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// Upload client_secret.json untuk channel tertentu (yt_id) atau channel baru (yt_id kosong)
+function pickSecret(yt_id) {
+  const input = document.createElement('input');
+  input.type = 'file'; input.accept = '.json';
+  input.onchange = () => {
+    if (!input.files.length) return;
+    const fd = new FormData();
+    fd.append('secret_file', input.files[0]);
+    if (yt_id) fd.append('yt_id', yt_id);
+    fetch('/api/upload_secret', { method: 'POST', body: fd })
+      .then(r => r.json()).then(d => {
+        if (d.status !== 'success') { toast(d.message || 'Gagal upload secret', 'error'); return; }
+        toast(d.message);
+        checkApiStatus(); loadChannels();
+        const ch = channelsCache.find(c => c.yt_id === yt_id);
+        showTvLink(d, ch && ch.name);
+      }).catch(() => toast('Gagal upload client_secret.json', 'error'));
+  };
+  input.click();
+}
+
+function generateTVLink(yt_id) {
+  if (!yt_id) { pickSecret(''); return; }
+  const ch = channelsCache.find(c => c.yt_id === yt_id);
+  fetch('/api/generate_tv_link?yt_id=' + encodeURIComponent(yt_id))
+    .then(r => r.json()).then(d => showTvLink(d, ch && ch.name))
+    .catch(() => toast('Gagal membuat link', 'error'));
+}
+
+function copyTvUrl() {
+  const inp = document.getElementById('tv-url');
+  const done = () => toast('Link disalin');
+  if (navigator.clipboard) navigator.clipboard.writeText(inp.value).then(done).catch(() => { inp.select(); document.execCommand('copy'); done(); });
+  else { inp.select(); document.execCommand('copy'); done(); }
+}
+
+async function stopChannelTasks(yt_id, name) {
+  if (!await confirmDialog('Hentikan antrean?', `Semua antrean aktif channel "${name}" akan dihentikan. Aset dan profil channel tetap aman.`, 'Hentikan')) return;
+  fetch('/api/stop_channel/' + encodeURIComponent(yt_id), { method: 'POST' })
+    .then(r => r.json()).then(d => toast(d.message))
+    .catch(() => toast('Gagal menghentikan antrean', 'error'));
+}
+
+async function deleteChannel(yt_id, name) {
+  if (!await confirmDialog('Hapus channel permanen?', `Channel "${name}" beserta seluruh file galeri, bank judul, dan antreannya akan dihapus. Tindakan ini tidak bisa dibatalkan.`, 'Hapus permanen', true)) return;
+  const fd = new FormData();
+  fd.append('yt_id', yt_id);
+  fetch('/api/delete_channel', { method: 'POST', body: fd })
+    .then(r => r.json()).then(d => { toast(d.message || 'Channel dihapus'); loadChannels(); })
+    .catch(() => toast('Gagal menghapus channel', 'error'));
+}
+
+function exportChannels() {
+  window.location.href = '/api/export_channels';
+}
+
+async function importChannels(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  if (!await confirmDialog('Import database channel?', 'Import akan menimpa SEMUA channel yang ada saat ini.', 'Import', true)) {
+    event.target.value = '';
+    return;
+  }
+  const fd = new FormData();
+  fd.append('file', file);
+  fetch('/api/import_channels', { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(data => { toast(data.message, data.status === 'success' ? '' : 'error'); loadChannels(); })
+    .catch(() => toast('Gagal import channel', 'error'))
+    .finally(() => { event.target.value = ''; });
+}
+
+// ───────── GALERI ASET ─────────
+async function loadGallery() {
+  const yt_id = document.getElementById('gallery-channel-select').value;
+  const content = document.getElementById('gallery-content');
+  const hint = document.getElementById('gallery-empty-hint');
+
+  if (!yt_id) {
+    content.classList.add('hidden');
+    hint.classList.remove('hidden');
+    return;
+  }
+  hint.classList.add('hidden');
+  content.classList.remove('hidden');
+
+  let counts, gallery;
+  try {
+    const [countsRes, galleryRes] = await Promise.all([
+      fetch(`/api/get_asset_counts?yt_id=${encodeURIComponent(yt_id)}`),
+      fetch(`/api/get_gallery?yt_id=${encodeURIComponent(yt_id)}`)
+    ]);
+    counts = await countsRes.json();
+    gallery = await galleryRes.json();
+  } catch (e) {
+    toast('Gagal memuat galeri', 'error');
+    return;
+  }
+
+  document.getElementById('count-audio-non').innerText = counts.audio_non_cid ?? 0;
+  document.getElementById('count-audio-cid').innerText = counts.audio_cid ?? 0;
+  document.getElementById('count-background').innerText = counts.backgrounds ?? 0;
+  document.getElementById('count-shorts_bg').innerText = (counts.shorts_bg ?? (gallery.shorts_bg || []).length);
+  document.getElementById('count-thumbnails').innerText = counts.thumbnails ?? 0;
+  document.getElementById('count-base_video').innerText = counts.base_videos ?? 0;
+
+  document.getElementById('gallery-sections').innerHTML = GALLERY_TYPES.map(t => {
+    const items = gallery[t.key] || [];
+    return `
+      <div class="st-card gal-section">
+        <div class="st-card-head">
+          <h3 class="st-card-title">${t.label} <span class="st-muted" style="font-weight:400">· ${items.length}</span></h3>
+          <div class="st-row">
+            ${items.length ? `<button class="st-btn st-btn-sm st-btn-danger" onclick="clearFolder('${t.type}')">Kosongkan</button>` : ''}
+            <button id="btn-up-${t.key}" class="st-btn st-btn-sm gal-progress" onclick="document.getElementById('upload-${t.key}').click()">
+              <div id="prog-${t.key}" class="bar"></div><span id="btn-text-${t.key}">Upload</span>
+            </button>
+            <input type="file" id="upload-${t.key}" class="hidden" multiple onchange="uploadAsset('${t.type}', '${t.key}', this)">
+          </div>
+        </div>
+        ${items.length ? `
+          <div class="st-list">
+            ${items.map(f => `
+              <div class="st-list-row">
+                <span class="st-ellipsis" style="flex:1">${esc(f.name)}</span>
+                <span class="st-mono">${esc(f.size)}</span>
+                <button class="st-icon-btn danger" aria-label="Hapus file" title="Hapus file" data-name="${esc(f.name)}" onclick="deleteAsset('${t.type}', this.dataset.name)">${icon('close')}</button>
+              </div>`).join('')}
+          </div>` : `<div class="st-empty" style="padding:20px">Belum ada file.</div>`}
+      </div>`;
+  }).join('');
+}
+
+function galleryChannel() {
+  return document.getElementById('gallery-channel-select').value;
+}
+
+function uploadAsset(type, key, input) {
+  const yt_id = galleryChannel();
+  if (!input.files.length || !yt_id) return;
+  const btn = document.getElementById(`btn-up-${key}`);
+  const btnText = document.getElementById(`btn-text-${key}`);
+  const progBar = document.getElementById(`prog-${key}`);
+  if (btn) btn.disabled = true;
+
+  const fd = new FormData();
+  fd.append('yt_id', yt_id);
+  fd.append('type', type);
+  for (const f of input.files) fd.append('files[]', f);
+
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/upload_gallery', true);
+  xhr.upload.onprogress = e => {
+    if (!e.lengthComputable) return;
+    const percent = Math.round((e.loaded / e.total) * 100);
+    if (btnText) btnText.textContent = `Mengunggah ${percent}%`;
+    if (progBar) progBar.style.width = `${percent}%`;
+  };
+  const resetUI = () => {
+    if (btn) btn.disabled = false;
+    if (btnText) btnText.textContent = 'Upload';
+    if (progBar) progBar.style.width = '0%';
+    input.value = '';
+  };
+  xhr.onload = () => {
+    resetUI();
+    if (xhr.status === 200) {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (data.status !== 'success') toast(data.message, 'error'); else toast('Upload selesai');
+      } catch (e) {}
+      loadGallery();
+    } else {
+      toast('Upload gagal (server error ' + xhr.status + ')', 'error');
+    }
+  };
+  xhr.onerror = () => { resetUI(); toast('Koneksi terputus saat upload', 'error'); };
+  xhr.send(fd);
+}
+
+function deleteAsset(type, name) {
+  const fd = new FormData();
+  fd.append('yt_id', galleryChannel());
+  fd.append('type', type);
+  fd.append('name', name);
+  fetch('/api/delete_gallery_file', { method: 'POST', body: fd })
+    .then(r => r.json()).then(() => loadGallery())
+    .catch(() => toast('Gagal menghapus file', 'error'));
+}
+
+async function clearFolder(type) {
+  if (!await confirmDialog('Kosongkan folder?', 'Semua file di folder ini akan dihapus.', 'Kosongkan', true)) return;
+  const fd = new FormData();
+  fd.append('yt_id', galleryChannel());
+  fd.append('type', type);
+  fetch('/api/clear_gallery_folder', { method: 'POST', body: fd })
+    .then(r => r.json()).then(() => loadGallery())
+    .catch(() => toast('Gagal mengosongkan folder', 'error'));
+}
+
+// ───────── BANK JUDUL ─────────
+function loadTitleBank() {
+  currentTitleCh = document.getElementById('title-ch-sel').value;
+  renderTitleList(titleBankData[currentTitleCh] || []);
+}
+
+function renderTitleList(bank) {
+  const list = document.getElementById('title-list');
+  document.getElementById('title-bank-count').textContent = bank.length + ' judul tersimpan';
+  if (!bank.length) {
+    list.innerHTML = `<div class="st-empty">${currentTitleCh ? 'Belum ada judul. Upload .txt atau tambah manual.' : 'Pilih channel, lalu upload file .txt (satu judul per baris).'}</div>`;
+    return;
+  }
+  list.innerHTML = bank.map((t, i) => `
+    <div class="st-list-row">
+      <span class="st-mono" style="width:28px;flex-shrink:0">${i + 1}</span>
+      <span class="st-ellipsis" style="flex:1">${esc(t)}</span>
+      <button class="st-icon-btn danger" aria-label="Hapus judul" title="Hapus judul" onclick="deleteTitle(${i})">${icon('close')}</button>
+    </div>`).join('');
+}
+
+function uploadTitleBank(event) {
+  const ch = document.getElementById('title-ch-sel').value;
+  if (!ch) { toast('Pilih channel dulu sebelum upload bank judul', 'error'); event.target.value = ''; return; }
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const lines = e.target.result.split('\n').map(l => l.trim()).filter(Boolean);
+    if (!lines.length) { toast('File .txt kosong', 'error'); return; }
+    titleBankData[ch] = [...new Set([...(titleBankData[ch] || []), ...lines])];
+    saveTitleBankToServer(ch);
+    currentTitleCh = ch;
+    renderTitleList(titleBankData[ch]);
+    toast(`${lines.length} judul diimport`);
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+function addManualTitle() {
+  if (!currentTitleCh) { toast('Pilih channel dulu', 'error'); return; }
+  const inp = document.getElementById('manual-title-input');
+  const val = inp.value.trim();
+  if (!val) return;
+  (titleBankData[currentTitleCh] = titleBankData[currentTitleCh] || []).push(val);
+  inp.value = '';
+  saveTitleBankToServer(currentTitleCh);
+  renderTitleList(titleBankData[currentTitleCh]);
+}
+
+function deleteTitle(idx) {
+  if (!currentTitleCh || !titleBankData[currentTitleCh]) return;
+  titleBankData[currentTitleCh].splice(idx, 1);
+  saveTitleBankToServer(currentTitleCh);
+  renderTitleList(titleBankData[currentTitleCh]);
+}
+
+async function clearTitleBank() {
+  if (!currentTitleCh) { toast('Pilih channel dulu', 'error'); return; }
+  if (!await confirmDialog('Kosongkan bank judul?', 'Semua judul untuk channel ini akan dihapus.', 'Kosongkan', true)) return;
+  titleBankData[currentTitleCh] = [];
+  saveTitleBankToServer(currentTitleCh);
+  renderTitleList([]);
+}
+
+function saveTitleBankToServer(ch) {
+  const lines = titleBankData[ch] || [];
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+  const fd = new FormData();
+  fd.append('yt_id', ch);
+  fd.append('txt_file', blob, 'titles.txt');
+  fetch('/api/upload_title_bank', { method: 'POST', body: fd }).catch(() => toast('Gagal menyimpan bank judul', 'error'));
+}
+
+function generateTitles() {
+  if (!currentTitleCh) { toast('Pilih channel dulu', 'error'); return; }
+  const bank = titleBankData[currentTitleCh] || [];
+  if (bank.length < 2) { toast('Bank judul minimal berisi 2 judul', 'error'); return; }
+  const count = parseInt(document.getElementById('gen-count').value) || 10;
+  const mode = document.getElementById('gen-mode').value;
+  const sep = document.getElementById('gen-sep').value;
+
+  generatedTitles = [];
+  const parts = bank.map(t => {
+    const m = t.match(/([|\-:])/);
+    if (m) { const s = m[1]; const sp = t.split(s); return [sp[0].trim(), sp.slice(1).join(s).trim()]; }
+    const words = t.split(' '), mid = Math.ceil(words.length / 2);
+    return [words.slice(0, mid).join(' '), words.slice(mid).join(' ')];
+  });
+  const firsts = parts.map(p => p[0]).filter(Boolean);
+  const seconds = parts.map(p => p[1]).filter(Boolean);
+  const qualifiers = ['Relaxing','Peaceful','Dreamy','Smooth','Deep','Warm','Soft','Calm','Pure','Mellow','Gentle','Soothing'];
+  const vibes = ['Vibes','Mood','Session','Mix','Edition','Collection','Series','Journey','Escape','Moment'];
+  const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+
+  let attempts = 0;
+  while (generatedTitles.length < count && attempts < count * 10) {
+    attempts++;
+    let title;
+    if (mode === 'recombine') title = pick(firsts) + sep + pick(seconds);
+    else if (mode === 'shuffle') title = pick(bank);
+    else {
+      const base = pick(bank), q = pick(qualifiers), v = pick(vibes);
+      title = pick([`${q} ${base}`, `${base} ${v}`, `${q} ${base} ${v}`, `${base} — ${q} ${v}`]);
+    }
+    title = title.replace(/\s+/g, ' ').trim();
+    if (!generatedTitles.includes(title)) generatedTitles.push(title);
+  }
+
+  document.getElementById('gen-results').innerHTML = generatedTitles.map((t, i) => `
+    <div class="st-list-row">
+      <span class="st-mono" style="width:28px;flex-shrink:0">${i + 1}</span>
+      <span class="st-ellipsis" style="flex:1">${esc(t)}</span>
+      <button class="st-btn st-btn-sm st-btn-text" onclick="addOneGenTitle(${i})">Pakai</button>
+    </div>`).join('');
+  document.getElementById('gen-result-count').textContent = generatedTitles.length + ' judul baru';
+  document.getElementById('gen-result-card').classList.remove('hidden');
+}
+
+function addOneGenTitle(idx) {
+  if (!currentTitleCh) return;
+  (titleBankData[currentTitleCh] = titleBankData[currentTitleCh] || []).push(generatedTitles[idx]);
+  saveTitleBankToServer(currentTitleCh);
+  renderTitleList(titleBankData[currentTitleCh]);
+  toast('Judul ditambahkan ke bank');
+}
+
+function saveAllGenerated() {
+  if (!currentTitleCh || !generatedTitles.length) return;
+  titleBankData[currentTitleCh] = [...new Set([...(titleBankData[currentTitleCh] || []), ...generatedTitles])];
+  saveTitleBankToServer(currentTitleCh);
+  renderTitleList(titleBankData[currentTitleCh]);
+  toast(`${generatedTitles.length} judul disimpan ke bank`);
+}
+
+// ───────── TELEGRAM ─────────
+function loadTgConfig() {
+  fetch('/api/get_telegram').then(r => r.json()).then(d => {
+    if (d.token) document.getElementById('tg-token').value = d.token;
+    if (d.chat_id) document.getElementById('tg-chatid').value = d.chat_id;
+  }).catch(() => {});
+}
+
+function saveTgConfig() {
+  const token = document.getElementById('tg-token').value.trim();
+  const chat_id = document.getElementById('tg-chatid').value.trim();
+  fetch('/api/save_telegram', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, chat_id })
+  }).then(r => r.json()).then(d => toast(d.message, d.status === 'error' ? 'error' : ''))
+    .catch(() => toast('Gagal menyimpan Telegram', 'error'));
+}
+
+// ───────── FACEBOOK ─────────
+function toggleFbForm() {
+  document.getElementById('fb-form-box').classList.toggle('hidden');
+}
+
+function loadFbPages() {
+  fetch('/api/get_fb_pages').then(r => r.json())
+    .then(d => { fbPagesCache = d || []; renderFbList(); })
+    .catch(() => {
+      document.getElementById('fb-page-list').innerHTML = `<tr><td colspan="3" class="st-empty">Gagal memuat data halaman.</td></tr>`;
+    });
+}
+
+function renderFbList() {
+  const wrap = document.getElementById('fb-page-list');
+  if (!fbPagesCache.length) {
+    wrap.innerHTML = `<tr><td colspan="3" class="st-empty"><b>Belum ada halaman</b>Klik "Tautkan halaman" untuk menambahkan.</td></tr>`;
+    return;
+  }
+  wrap.innerHTML = fbPagesCache.map((p, i) => `
+    <tr>
+      <td>
+        <div class="ch-cell">
+          <div class="fb-mark">f</div>
+          <div style="min-width:0">
+            <div class="ch-name st-ellipsis">${esc(p.name)}</div>
+            <div class="st-mono st-ellipsis">ID ${esc(p.page_id)}</div>
+          </div>
+        </div>
+      </td>
+      <td class="hide-sm"><span class="st-chip ok">Terhubung</span></td>
+      <td class="col-actions"><div class="st-row-actions">${iconBtn('del', 'Hapus halaman', `deleteFbPage(fbPagesCache[${i}].page_id)`, 'danger')}</div></td>
+    </tr>`).join('');
+}
+
+function saveFacebookConfig(event) {
+  const pageId = document.getElementById('fb-page-id').value.trim();
+  const token = document.getElementById('fb-access-token').value.trim();
+  if (!pageId || !token) { toast('Isi Page ID dan Access Token', 'error'); return; }
+
+  const btn = event.currentTarget || event.target;
+  const originalText = btn.textContent;
+  btn.textContent = 'Menghubungkan…';
+  btn.disabled = true;
+  const reset = () => { btn.textContent = originalText; btn.disabled = false; };
+
+  fetch(`https://graph.facebook.com/v19.0/${encodeURIComponent(pageId)}?fields=name&access_token=${encodeURIComponent(token)}`)
+    .then(r => r.json())
+    .then(d => {
+      if (d.error) { reset(); toast('Gagal: ' + d.error.message, 'error'); return; }
+      return fetch('/api/save_fb_page', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: d.name, page_id: pageId, access_token: token })
+      }).then(r => r.json()).then(() => {
+        reset();
+        toast(`Halaman "${d.name}" terhubung`);
+        document.getElementById('fb-page-id').value = '';
+        document.getElementById('fb-access-token').value = '';
+        toggleFbForm();
+        loadFbPages();
+      });
+    })
+    .catch(() => { reset(); toast('Gagal menghubungi server Facebook', 'error'); });
+}
+
+async function deleteFbPage(pageId) {
+  if (!await confirmDialog('Hapus halaman Facebook?', 'Halaman ini akan dilepas dari aplikasi.', 'Hapus', true)) return;
+  fetch('/api/delete_fb_page', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ page_id: pageId })
+  }).then(r => r.json()).then(() => loadFbPages())
+    .catch(() => toast('Gagal menghapus halaman', 'error'));
+}
+
+// ───────── PEMBARUAN APLIKASI ─────────
+let updInfo = null;
+let updChecked = false;
+
+function setUpdChip(text, cls) {
+  const chip = document.getElementById('upd-chip');
+  chip.textContent = text;
+  chip.className = 'st-chip ' + (cls || '');
+}
+
+function showUpdMsg(text) {
+  const el = document.getElementById('upd-msg');
+  el.textContent = text || '';
+  el.classList.toggle('hidden', !text);
+}
+
+async function checkUpdate() {
+  const btn = document.getElementById('upd-check-btn');
+  btn.disabled = true;
+  setUpdChip('Mengecek…');
+  try {
+    updInfo = await (await fetch('/api/update/check')).json();
+    updChecked = true;
+    renderUpdate();
+  } catch (e) {
+    setUpdChip('Gagal mengecek', 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function renderUpdate() {
+  const d = updInfo || {};
+  const startBtn = document.getElementById('upd-start-btn');
+  const wrap = document.getElementById('upd-changes-wrap');
+  startBtn.disabled = !d.can_update;
+  if (!d.ok) {
+    setUpdChip('Tidak tersedia', 'err');
+    showUpdMsg(d.message);
+    wrap.classList.add('hidden');
+    return;
+  }
+  document.getElementById('upd-current').textContent = `${d.current.hash} · ${d.current.subject} · ${d.current.when}`;
+  if (d.dirty.length) {
+    setUpdChip('Ada perubahan lokal', 'warn');
+    showUpdMsg('File kode di server diubah langsung, jadi pembaruan otomatis dinonaktifkan: ' + d.dirty.join(', '));
+  } else if (d.ahead) {
+    setUpdChip('Versi berbeda', 'warn');
+    showUpdMsg('Versi di server punya commit yang tidak ada di GitHub. Pembaruan otomatis dinonaktifkan.');
+  } else if (d.behind) {
+    setUpdChip(`${d.behind} pembaruan tersedia`, 'warn');
+    showUpdMsg(d.auto_restart ? '' : 'Aplikasi tidak berjalan lewat systemd, jadi setelah diperbarui perlu dijalankan ulang secara manual.');
+  } else {
+    setUpdChip('Versi terbaru', 'ok');
+    showUpdMsg('');
+  }
+  wrap.classList.toggle('hidden', !d.changes.length);
+  document.getElementById('upd-changes').innerHTML = d.changes.map(c => `
+    <div class="st-list-row">
+      <span class="st-mono" style="flex-shrink:0">${esc(c.hash)}</span>
+      <span class="st-ellipsis" style="flex:1">${esc(c.subject)}</span>
+      <span class="st-muted" style="font-size:12px;flex-shrink:0">${esc(c.when)}</span>
+    </div>`).join('');
+}
+
+async function activeWorkSummary() {
+  try {
+    const h = await (await fetch('/api/hub_status')).json();
+    const parts = [];
+    if (h.factory) parts.push(`${h.factory} render Factory`);
+    if (h.shorts) parts.push(`${h.shorts} job Shorts`);
+    if (h.clipper) parts.push(`${h.clipper} clip`);
+    if (h.live_active) parts.push('siaran live');
+    return parts.join(', ');
+  } catch (e) {
+    return '';
+  }
+}
+
+async function startUpdate() {
+  if (!updInfo || !updInfo.can_update) return;
+  const busy = await activeWorkSummary();
+  const text = (busy ? `Masih ada proses berjalan: ${busy}. Restart akan menghentikannya; task Factory akan dilanjutkan otomatis setelah aplikasi menyala lagi.\n\n` : '')
+    + `${updInfo.behind} perubahan akan dipasang, lalu aplikasi di-restart (sekitar 10–30 detik).`;
+  if (!await confirmDialog('Perbarui aplikasi?', text, 'Perbarui', !!busy)) return;
+
+  document.getElementById('upd-start-btn').disabled = true;
+  document.getElementById('upd-check-btn').disabled = true;
+  setUpdChip('Memperbarui…', 'warn');
+  try {
+    const r = await (await fetch('/api/update/start', { method: 'POST' })).json();
+    if (r.status !== 'success') throw new Error(r.message);
+  } catch (e) {
+    toast(e.message || 'Gagal memulai pembaruan', 'error');
+    document.getElementById('upd-check-btn').disabled = false;
+    checkUpdate();
+    return;
+  }
+  pollUpdateState(updInfo.remote);
+}
+
+async function pollUpdateState(targetHead) {
+  const logEl = document.getElementById('upd-log');
+  logEl.classList.remove('hidden');
+  let st;
+  try {
+    st = await (await fetch('/api/update/state')).json();
+  } catch (e) {
+    st = null;  // server sedang restart
+  }
+  if (st) {
+    logEl.textContent = st.log.join('\n');
+    if (st.phase === 'error') {
+      setUpdChip('Gagal', 'err');
+      toast(st.error || 'Pembaruan gagal', 'error');
+      document.getElementById('upd-check-btn').disabled = false;
+      return;
+    }
+    if (st.phase === 'done' && !st.running) {
+      setUpdChip('Perlu dijalankan ulang', 'warn');
+      document.getElementById('upd-check-btn').disabled = false;
+      return;
+    }
+  }
+  if (!st || st.restarting) {
+    setUpdChip('Menunggu aplikasi menyala…', 'warn');
+    waitForRestart(targetHead, Date.now());
+    return;
+  }
+  setTimeout(() => pollUpdateState(targetHead), 1500);
+}
+
+async function waitForRestart(targetHead, since) {
+  await new Promise(r => setTimeout(r, 2000));
+  try {
+    const d = await (await fetch('/api/update/check?fetch=0', { cache: 'no-store' })).json();
+    if (d.ok && d.head === targetHead) {
+      toast('Aplikasi berhasil diperbarui');
+      setTimeout(() => location.reload(), 800);
+      return;
+    }
+  } catch (e) { /* belum menyala */ }
+  if (Date.now() - since > 180000) {
+    setUpdChip('Belum menyala', 'err');
+    toast('Aplikasi belum menyala setelah 3 menit. Cek dengan: systemctl status manager-kecil', 'error');
+    document.getElementById('upd-check-btn').disabled = false;
+    return;
+  }
+  waitForRestart(targetHead, since);
+}
+
+// ───────── INIT ─────────
+checkApiStatus();
+loadTgConfig();
+loadChannels();
+loadFbPages();
+{
+  const tab = location.hash.slice(1);
+  if (document.getElementById('tab-' + tab)) switchTab(tab);
+}
+</script>
+</body>
+</html>

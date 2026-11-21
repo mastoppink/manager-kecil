@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Antrean — manager-kecil</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/studio.css') }}">
+<style>
+  .tab-count { display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 6px; border-radius: 10px; background: var(--surface-2); font-size: 12px; color: var(--text-2); text-align: center; }
+  .grp { border-top: 1px solid var(--border); }
+  .grp:first-child { border-top: 0; }
+  .grp-head { display: flex; align-items: center; gap: 12px; padding: 12px 20px; cursor: pointer; user-select: none; }
+  .grp-head:hover { background: rgba(255,255,255,.03); }
+  .grp-head .chev { width: 20px; height: 20px; color: var(--text-2); transition: transform .15s; flex-shrink: 0; }
+  .grp-head.collapsed .chev { transform: rotate(-90deg); }
+  .grp-name { font-weight: 500; flex: 1; min-width: 0; }
+  .task { display: flex; align-items: center; gap: 12px; padding: 10px 20px 10px 52px; border-top: 1px solid rgba(255,255,255,.05); flex-wrap: wrap; }
+  .task:hover { background: rgba(255,255,255,.03); }
+  .task-main { flex: 1; min-width: 200px; }
+  .task-title { font-weight: 500; }
+  .task-meta { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+  .task-meta a, .task-status a { color: var(--blue); }
+  .task-status { font-size: 13px; color: var(--text-2); text-align: right; max-width: 360px; }
+  .task-status.fail { color: var(--red); }
+  .mod-tag { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 4px; background: var(--surface-2); color: var(--text-2); white-space: nowrap; }
+  .mod-tag.factory { color: #3ea6ff; } .mod-tag.shorts { color: #f2a60c; } .mod-tag.clipper { color: #b388ff; }
+  .plat { font-size: 11px; color: var(--text-3); white-space: nowrap; }
+  .pager { display: flex; gap: 4px; justify-content: center; padding: 12px; flex-wrap: wrap; }
+  .pager button { min-width: 32px; height: 32px; border-radius: 16px; border: 0; background: transparent; color: var(--text-2); cursor: pointer; font: 500 13px var(--font); }
+  .pager button:hover { background: var(--hover); }
+  .pager button.on { background: var(--text); color: #0f0f0f; }
+  @media (max-width: 720px) { .task { padding-left: 20px; } .task-status { text-align: left; max-width: none; } }
+</style>
+</head>
+<body class="studio">
+{% set active = 'tasks' %}{% include '_studio_shell.html' %}
+
+<main class="st-main">
+<div class="st-container">
+  <div class="st-section-head">
+    <div>
+      <h1 class="st-page-title">Antrean</h1>
+      <p class="st-page-sub" style="margin:0">Antrean render dan jadwal upload semua modul, per channel.</p>
+    </div>
+    <div class="st-row">
+      <button class="st-btn st-btn-text" onclick="toggleAllGroups(false)">Buka semua</button>
+      <button class="st-btn st-btn-text" onclick="toggleAllGroups(true)">Tutup semua</button>
+      <button class="st-btn" onclick="recoverFailed()">Pulihkan yang macet</button>
+      <button class="st-btn st-btn-danger" onclick="clearHistory()">Bersihkan riwayat</button>
+    </div>
+  </div>
+
+  <div class="st-tabs" role="tablist">
+    <button class="st-tab tab-btn active" data-f="all" onclick="setFilter('all', this)">Semua<span class="tab-count" id="cnt-all">0</span></button>
+    <button class="st-tab tab-btn" data-f="factory" onclick="setFilter('factory', this)">Factory<span class="tab-count" id="cnt-factory">0</span></button>
+    <button class="st-tab tab-btn" data-f="shorts" onclick="setFilter('shorts', this)">Shorts<span class="tab-count" id="cnt-shorts">0</span></button>
+    <button class="st-tab tab-btn" data-f="clipper" onclick="setFilter('clipper', this)">Clipper<span class="tab-count" id="cnt-clipper">0</span></button>
+  </div>
+
+  <div class="st-stack">
+    <div class="st-card">
+      <div class="st-card-head">
+        <h2 class="st-card-title">Sedang berjalan &amp; menunggu</h2>
+        <span id="active-label" class="st-chip ok">0 aktif</span>
+      </div>
+      <div id="active-list"><div class="st-empty">Memuat antrean…</div></div>
+    </div>
+
+    <div class="st-card">
+      <div class="st-card-head">
+        <h2 class="st-card-title">Riwayat selesai / gagal</h2>
+        <span id="hist-label" class="st-chip plain">0 riwayat</span>
+      </div>
+      <div id="hist-list"><div class="st-empty">Memuat riwayat…</div></div>
+    </div>
+  </div>
+</div>
+</main>
+
+<script src="{{ url_for('static', filename='js/studio.js') }}"></script>
+<script>
+const { toast, confirmDialog, esc } = window.Studio;
+let currentFilter = 'all';
+let rawData = { active: [], history: [], ch_order: [], counts: {} };
+let qCollapsed = {};
+let hCollapsed = {};
+let hPage = {};
+let groupKeys = [];  // dipakai onclick agar key channel tidak perlu di-escape ke atribut HTML
+
+const CHEV = '<svg class="chev" viewBox="0 0 24 24" fill="currentColor"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>';
+const MOD_LABEL = { factory: 'Factory', shorts: 'Shorts', clipper: 'Clipper' };
+
+function setFilter(mod, btn) {
+  currentFilter = mod;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+  renderView();
+}
+function toggleQGroup(i) { const k = groupKeys[i]; qCollapsed[k] = !qCollapsed[k]; renderView(); }
+function toggleHGroup(i) { const k = groupKeys[i]; hCollapsed[k] = !hCollapsed[k]; renderView(); }
+function setHistPage(i, page) { hPage[groupKeys[i]] = page; renderView(); }
+
+function toggleAllGroups(collapseState) {
+  (rawData.active || []).forEach(t => qCollapsed[t.yt_id || t.channel || '__unknown__'] = collapseState);
+  (rawData.history || []).forEach(t => hCollapsed[t.yt_id || t.channel || '__unknown__'] = collapseState);
+  renderView();
+}
+
+function badgeModule(mod) {
+  return `<span class="mod-tag ${esc(mod)}">${MOD_LABEL[mod] || esc(mod)}</span>`;
+}
+
+function badgePlatforms(platforms) {
+  if (!Array.isArray(platforms) || !platforms.length) return '';
+  const names = { youtube: 'YouTube', tiktok: 'TikTok', facebook: 'Facebook' };
+  return `<span class="plat">→ ${platforms.map(p => names[p] || esc(p)).join(', ')}</span>`;
+}
+
+function groupByChannel(items) {
+  const groups = {};
+  items.forEach(t => {
+    const key = t.yt_id || t.channel || '__unknown__';
+    if (!groups[key]) groups[key] = { name: t.channel || 'Tanpa channel', yt_id: t.yt_id || '', items: [] };
+    groups[key].items.push(t);
+  });
+  const order = rawData.ch_order || [];
+  return Object.keys(groups).sort((a, b) => {
+    const ia = order.indexOf(a), ib = order.indexOf(b);
+    if (ia === -1 && ib === -1) return a.localeCompare(b);
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  }).map(k => ({ key: k, ...groups[k] }));
+}
+
+function keyIndex(key) {
+  let i = groupKeys.indexOf(key);
+  if (i === -1) { groupKeys.push(key); i = groupKeys.length - 1; }
+  return i;
+}
+
+function fetchTasks() {
+  fetch('/api/unified_tasks').then(r => r.json()).then(d => {
+    rawData = d;
+    for (const k of ['all', 'factory', 'shorts', 'clipper']) document.getElementById('cnt-' + k).textContent = d.counts?.[k] || 0;
+    renderView();
+  }).catch(() => {});
+}
+
+function isWaiting(st) {
+  return ['Queue', 'Menunggu', 'Cooldown', 'Ditunda', 'Dijadwalkan'].some(w => st.includes(w));
+}
+
+function renderView() {
+  const act = (rawData.active || []).filter(x => currentFilter === 'all' || x.module === currentFilter);
+  const hst = (rawData.history || []).filter(x => currentFilter === 'all' || x.module === currentFilter);
+  document.getElementById('active-label').textContent = `${act.length} aktif`;
+  document.getElementById('hist-label').textContent = `${hst.length} riwayat`;
+
+  // Antrean aktif
+  const actBox = document.getElementById('active-list');
+  if (!act.length) {
+    actBox.innerHTML = `<div class="st-empty"><b>Tidak ada task aktif</b>Antrean untuk filter ini kosong.</div>`;
+  } else {
+    actBox.innerHTML = groupByChannel(act).map(g => {
+      const i = keyIndex(g.key);
+      const col = !!qCollapsed[g.key];
+      const rows = col ? '' : g.items.map((t, j) => {
+        const st = String(t.status || '');
+        const wait = isWaiting(st);
+        return `
+          <div class="task">
+            ${badgeModule(t.module)}
+            <div class="task-main">
+              <div class="task-title st-ellipsis">${esc(t.title)}</div>
+              <div class="task-meta">${esc(t.time || '')}${t.thumb_status ? ` · Thumbnail: ${esc(t.thumb_status)}` : ''} ${badgePlatforms(t.platforms)}</div>
+            </div>
+            <span class="st-chip ${wait ? 'warn' : 'ok'}">${st}</span>
+            ${t.can_stop ? `<button class="st-btn st-btn-sm st-btn-danger" onclick="stopTask(${JSON.stringify(String(t.id)).replace(/"/g, '&quot;')})">Stop</button>` : ''}
+          </div>`;
+      }).join('');
+      return `
+        <div class="grp">
+          <div class="grp-head ${col ? 'collapsed' : ''}" onclick="toggleQGroup(${i})">
+            ${CHEV}<span class="grp-name st-ellipsis">${esc(g.name)}</span>
+            <span class="st-chip plain">${g.items.length} aktif</span>
+            ${g.yt_id ? `<button class="st-btn st-btn-sm st-btn-danger" onclick="event.stopPropagation(); stopChannel(${i})">Stop channel</button>` : ''}
+          </div>
+          ${rows}
+        </div>`;
+    }).join('');
+  }
+
+  // Riwayat
+  const hstBox = document.getElementById('hist-list');
+  if (!hst.length) {
+    hstBox.innerHTML = `<div class="st-empty"><b>Belum ada riwayat</b>Task yang selesai atau gagal akan muncul di sini.</div>`;
+    return;
+  }
+  hstBox.innerHTML = groupByChannel(hst).map(g => {
+    const i = keyIndex(g.key);
+    const col = !!hCollapsed[g.key];
+    const limit = 50;
+    const totalPages = Math.max(1, Math.ceil(g.items.length / limit));
+    const page = Math.min(Math.max(hPage[g.key] || 1, 1), totalPages);
+    let rows = '';
+    if (!col) {
+      rows = g.items.slice((page - 1) * limit, page * limit).map(t => {
+        const st = String(t.status || '');
+        const fail = st.includes('❌') || st.toLowerCase().includes('gagal');
+        return `
+          <div class="task">
+            ${badgeModule(t.module)}
+            <div class="task-main">
+              <div class="task-title st-ellipsis">${esc(t.title)}</div>
+              <div class="task-meta"><span class="st-mono">#${esc(t.id)}</span>${t.info ? ` · ${t.info}` : ''}${t.thumb_status ? ` · Thumbnail: ${esc(t.thumb_status)}` : ''} ${badgePlatforms(t.platforms)}</div>
+            </div>
+            <div class="task-status ${fail ? 'fail' : ''}">${st}</div>
+          </div>`;
+      }).join('');
+      if (totalPages > 1) {
+        let btns = '';
+        for (let p = 1; p <= totalPages; p++) btns += `<button class="${p === page ? 'on' : ''}" onclick="setHistPage(${i}, ${p})">${p}</button>`;
+        rows += `<div class="pager">${btns}</div>`;
+      }
+    }
+    return `
+      <div class="grp">
+        <div class="grp-head ${col ? 'collapsed' : ''}" onclick="toggleHGroup(${i})">
+          ${CHEV}<span class="grp-name st-ellipsis">${esc(g.name)}</span>
+          <span class="st-chip plain">${g.items.length} total</span>
+        </div>
+        ${rows}
+      </div>`;
+  }).join('');
+}
+
+async function stopTask(id) {
+  if (!await confirmDialog('Hentikan task?', 'Task ini akan dihentikan paksa.', 'Hentikan', true)) return;
+  fetch('/api/stop_task/' + encodeURIComponent(id), { method: 'POST' })
+    .then(() => { toast('Task dihentikan'); fetchTasks(); })
+    .catch(() => toast('Gagal menghentikan task', 'error'));
+}
+async function stopChannel(i) {
+  const key = groupKeys[i];
+  const item = (rawData.active || []).find(t => (t.yt_id || t.channel || '__unknown__') === key);
+  if (!item || !item.yt_id) return;
+  if (!await confirmDialog('Hentikan antrean channel?', `Semua antrean aktif channel "${item.channel || item.yt_id}" akan dihentikan.`, 'Hentikan', true)) return;
+  fetch('/api/stop_channel/' + encodeURIComponent(item.yt_id), { method: 'POST' })
+    .then(r => r.json()).then(d => { toast(d.message || 'Antrean dihentikan'); fetchTasks(); })
+    .catch(() => toast('Gagal menghentikan antrean', 'error'));
+}
+async function recoverFailed() {
+  if (!await confirmDialog('Pulihkan task macet?', 'Task Factory yang macet akan dikembalikan ke antrean.', 'Pulihkan')) return;
+  fetch('/api/recover_failed_tasks', { method: 'POST' })
+    .then(r => r.json()).then(d => { toast(d.message || 'Task dipulihkan'); fetchTasks(); })
+    .catch(() => toast('Gagal memulihkan task', 'error'));
+}
+async function clearHistory() {
+  if (!await confirmDialog('Bersihkan riwayat?', 'Seluruh riwayat task akan dihapus.', 'Bersihkan', true)) return;
+  fetch('/api/clear_history', { method: 'POST' })
+    .then(() => { toast('Riwayat dibersihkan'); fetchTasks(); })
+    .catch(() => toast('Gagal membersihkan riwayat', 'error'));
+}
+
+fetchTasks();
+setInterval(fetchTasks, 2500);
+</script>
+</body>
+</html>

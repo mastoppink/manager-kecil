@@ -1,0 +1,21 @@
+{# Tailwind untuk markup yang dibuat JavaScript lama, dengan palet dipetakan ke tema Studio.
+   Preflight dimatikan agar tidak menimpa gaya dasar studio.css. #}
+<script src="https://cdn.tailwindcss.com/3.4.1"></script>
+<script>
+  tailwind.config = {
+    corePlugins: { preflight: false },
+    theme: {
+      extend: {
+        colors: {
+          primary: '#3ea6ff',
+          cardborder: '#3f3f3f',
+          gray: {
+            100: '#f1f1f1', 200: '#e0e0e0', 300: '#cfcfcf', 400: '#aaaaaa', 500: '#8a8a8a',
+            600: '#717171', 700: '#3f3f3f', 800: '#303030', 900: '#282828', 950: '#1f1f1f'
+          }
+        },
+        fontFamily: { sans: ['Roboto', 'system-ui', 'sans-serif'], mono: ['Roboto Mono', 'monospace'] }
+      }
+    }
+  };
+</script>

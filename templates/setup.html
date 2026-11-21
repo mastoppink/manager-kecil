@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Setup — manager-kecil</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/studio.css') }}">
+</head>
+<body class="studio">
+<main class="st-auth">
+  <div class="st-card st-auth-card">
+    <div class="st-brand" style="justify-content:center"><span class="st-brand-mark"></span>manager-kecil</div>
+    <h1 class="st-auth-title">Selamat datang</h1>
+    <p class="st-auth-sub">Buat PIN untuk melindungi server Anda. PIN ini dipakai setiap kali masuk.</p>
+    <form method="POST" action="/setup" class="st-stack">
+      <div class="st-field">
+        <label class="st-label" for="new_pin">PIN baru</label>
+        <input class="st-input" type="password" id="new_pin" name="new_pin" required minlength="3" autofocus autocomplete="new-password">
+        <span class="st-help">Minimal 3 karakter.</span>
+      </div>
+      <div class="st-field">
+        <label class="st-label" for="confirm_pin">Ulangi PIN</label>
+        <input class="st-input" type="password" id="confirm_pin" name="confirm_pin" required autocomplete="new-password">
+      </div>
+      {% if error %}<p class="st-auth-error" role="alert">{{ error }}</p>{% endif %}
+      <button class="st-btn st-btn-primary" type="submit" style="width:100%">Simpan &amp; mulai</button>
+    </form>
+  </div>
+</main>
+</body>
+</html>
