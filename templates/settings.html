@@ -272,6 +272,36 @@
     <div class="st-card">
       <div class="st-card-head">
         <div>
+          <h3 class="st-card-title">Ganti PIN</h3>
+          <p class="st-card-sub">PIN dipakai untuk masuk ke panel. Setelah diganti, perangkat lain otomatis keluar.</p>
+        </div>
+      </div>
+      <form class="st-card-body st-stack" id="pin-form" onsubmit="event.preventDefault(); changePin();">
+        <div class="st-field" style="max-width:360px">
+          <label class="st-label" for="pin-current">PIN saat ini</label>
+          <input type="password" id="pin-current" class="st-input" required autocomplete="current-password">
+        </div>
+        <div class="st-grid-2">
+          <div class="st-field">
+            <label class="st-label" for="pin-new">PIN baru</label>
+            <input type="password" id="pin-new" class="st-input" required minlength="3" autocomplete="new-password">
+            <span class="st-help">Minimal 3 karakter.</span>
+          </div>
+          <div class="st-field">
+            <label class="st-label" for="pin-confirm">Ulangi PIN baru</label>
+            <input type="password" id="pin-confirm" class="st-input" required autocomplete="new-password">
+          </div>
+        </div>
+        <div class="st-row" style="justify-content:flex-end">
+          <button type="submit" class="st-btn st-btn-primary" id="pin-btn">Ganti PIN</button>
+        </div>
+        <input type="text" name="username" value="admin" autocomplete="username" style="display:none" aria-hidden="true" tabindex="-1">
+      </form>
+    </div>
+
+    <div class="st-card">
+      <div class="st-card-head">
+        <div>
           <h3 class="st-card-title">Notifikasi Telegram</h3>
           <p class="st-card-sub">Laporan saat render selesai/gagal dan pengingat stok jadwal video.</p>
         </div>
@@ -852,6 +882,28 @@ async function deleteFbPage(pageId) {
     body: JSON.stringify({ page_id: pageId })
   }).then(r => r.json()).then(() => loadFbPages())
     .catch(() => toast('Gagal menghapus halaman', 'error'));
+}
+
+// ───────── GANTI PIN ─────────
+async function changePin() {
+  const val = id => document.getElementById(id).value;
+  const current_pin = val('pin-current'), new_pin = val('pin-new'), confirm_pin = val('pin-confirm');
+  if (new_pin.length < 3) { toast('PIN baru minimal 3 karakter', 'error'); return; }
+  if (new_pin !== confirm_pin) { toast('Konfirmasi PIN baru tidak cocok', 'error'); return; }
+  const btn = document.getElementById('pin-btn');
+  btn.disabled = true;
+  try {
+    const d = await (await fetch('/api/change_pin', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ current_pin, new_pin, confirm_pin })
+    })).json();
+    toast(d.message || 'Gagal mengganti PIN', d.status === 'success' ? '' : 'error');
+    if (d.status === 'success') document.getElementById('pin-form').reset();
+  } catch (e) {
+    toast('Gagal menghubungi server', 'error');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ───────── PEMBARUAN APLIKASI ─────────

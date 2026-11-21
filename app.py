@@ -114,6 +114,32 @@ def setup():
             return redirect(url_for('hub'))
     return render_template('setup.html', error=error)
 
+@app.route('/api/change_pin', methods=['POST'])
+def change_pin():
+    """Ganti PIN admin. Secret key sesi ikut diganti agar perangkat lain otomatis keluar."""
+    data = request.get_json(silent=True) or {}
+    current = str(data.get('current_pin') or '')
+    new_pin = str(data.get('new_pin') or '')
+    confirm = str(data.get('confirm_pin') or '')
+    saved = str(load_bot_config().get('admin_pin') or '')
+    if not saved or not secrets.compare_digest(current, saved):
+        return jsonify({"status": "error", "message": "PIN saat ini salah."}), 403
+    if len(new_pin) < 3:
+        return jsonify({"status": "error", "message": "PIN baru minimal 3 karakter."}), 400
+    if new_pin != confirm:
+        return jsonify({"status": "error", "message": "Konfirmasi PIN baru tidak cocok."}), 400
+    if new_pin == saved:
+        return jsonify({"status": "error", "message": "PIN baru sama dengan PIN lama."}), 400
+
+    new_secret = secrets.token_hex(24)
+    def mutate(cfg):
+        cfg['admin_pin'] = new_pin
+        cfg['secret_key'] = new_secret
+    update_json(CONFIG_FILE, {}, mutate)
+    app.secret_key = new_secret
+    session['logged_in'] = True  # cookie perangkat ini ditandatangani ulang dengan secret baru
+    return jsonify({"status": "success", "message": "PIN berhasil diganti. Perangkat lain perlu masuk ulang."})
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if not is_configured(): return redirect(url_for('setup'))
