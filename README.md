@@ -19,7 +19,7 @@ Tampilannya mengikuti gaya YouTube Studio dan bisa dibuka dari browser di laptop
 | **Settings** | Kelola channel, halaman Facebook, galeri aset per channel, bank judul, dan notifikasi Telegram. |
 
 Fitur lain:
-- **Mode konten per channel** (*Settings → Channel YouTube*):
+- **Mode konten per channel** (*Settings → Channel YouTube*). Channel yang baru ditautkan otomatis **AdSense**; channel lama tetap Content ID sampai diubah:
   - **Content ID:** footage background boleh dipakai berulang (diacak bergiliran supaya tidak kembar berurutan), audio diambil dari folder Audio CID.
   - **AdSense:** setiap background, background Shorts, dan video sumber hanya dipakai sekali untuk menghindari konten berulang. File yang sudah masuk video yang berhasil dipindah ke subfolder `_terpakai/`; kalau render atau upload gagal, file kembali ke stok. Batch ditolak sejak awal bila stok tidak cukup. Audio diambil dari folder Audio non-CID.
   - Sisa stok dan file terpakai bisa dilihat, dikembalikan ke stok, atau dihapus di *Settings → Galeri Aset*.

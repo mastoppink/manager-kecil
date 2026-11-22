@@ -39,6 +39,7 @@ Tugasmu menjalankan perintah pemilik dengan aman dan efisien lewat **HTTP API** 
 | `cid` (Content ID) | Boleh berulang, diacak bergiliran | folder `audio_cid` |
 | `adsense` | **Sekali pakai.** Setelah tayang dipindah ke folder Terpakai | folder `audio_non_cid` |
 
+- Channel yang baru ditautkan otomatis `adsense`. Channel lama tetap `cid` sampai pemilik mengubahnya.
 - Di mode `adsense`, batch **ditolak** kalau stok footage tidak cukup. Cek stok dulu (bagian 4.7).
 - Audio otomatis mengikuti mode. Tidak perlu (dan tidak bisa) memilih folder audio secara manual.
 

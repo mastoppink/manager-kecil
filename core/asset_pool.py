@@ -50,8 +50,27 @@ def folder_label(folder):
             'base_videos': 'video sumber', 'audio_cid': 'audio CID', 'audio_non_cid': 'audio non-CID'}.get(folder, folder)
 
 
+DEFAULT_MODE = MODE_ADSENSE  # channel baru otomatis AdSense
+
+
 def channel_mode(channel):
-    return MODE_ADSENSE if (channel or {}).get('content_mode') == MODE_ADSENSE else MODE_CID
+    """Mode channel. Channel tanpa field content_mode dianggap mode default (AdSense);
+    channel lama sudah diberi 'cid' eksplisit oleh migrasi saat start agar perilakunya tidak berubah."""
+    if not channel:
+        return MODE_CID
+    mode = channel.get('content_mode')
+    return mode if mode in MODES else DEFAULT_MODE
+
+
+def pin_legacy_modes(channels):
+    """Channel yang belum punya content_mode (dibuat sebelum mode default AdSense) ditandai 'cid'.
+    Mengembalikan True bila ada perubahan."""
+    changed = False
+    for c in channels:
+        if isinstance(c, dict) and c.get('content_mode') not in MODES:
+            c['content_mode'] = MODE_CID
+            changed = True
+    return changed
 
 
 def audio_folder(mode):

@@ -120,6 +120,7 @@ class ChannelSecretRouteTests(unittest.TestCase):
         self.assertEqual(self.poll(CID_A)['status'], 'success')
         self.assertEqual([c['client_id'] for c in self.channels], [CID_A, CID_A])
         self.assertEqual(self.channels[1]['id'], 2)
+        self.assertEqual(self.channels[1]['content_mode'], 'adsense')  # channel baru otomatis AdSense
 
     def test_relink_rejects_wrong_account(self):
         self.upload(CID_B, 'UC_OLD')

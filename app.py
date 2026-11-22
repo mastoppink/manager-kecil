@@ -524,7 +524,8 @@ def _keep_asset_lease(chan_dir, owner):
 
 asset_pool.set_keep_predicate(_keep_asset_lease)
 try:
-    if channel_auth.migrate_channels(database_channel, SECRETS_DIR, CLIENT_SECRETS_FILE):
+    _secret_changed = channel_auth.migrate_channels(database_channel, SECRETS_DIR, CLIENT_SECRETS_FILE)
+    if asset_pool.pin_legacy_modes(database_channel) or _secret_changed:
         save_channels(database_channel)
 except Exception as _mig_err:
     print(f"⚠️ Migrasi client_id channel gagal: {_mig_err}")
@@ -2494,6 +2495,7 @@ def import_channels():
             if any(task_channel_id(t) not in ids for t in active_tasks if not task_terminal(t)):
                 return jsonify({'status': 'error', 'message': 'Cadangan tidak mencakup channel antrean aktif.'}), 409
             channel_auth.migrate_channels(new_data, SECRETS_DIR)
+            asset_pool.pin_legacy_modes(new_data)  # cadangan lama tetap Content ID
             database_channel = new_data
             # Langsung simpan secara permanen menimpa channels_db.json lama
             save_channels(database_channel)
@@ -3012,7 +3014,8 @@ def poll_device_token():
     with db_lock:
         c_idx = next((i for i, c in enumerate(database_channel) if c['yt_id'] == item['id']), None)
         if c_idx is None:
-            database_channel.append({"id": max([c.get('id', 0) for c in database_channel if isinstance(c.get('id'), int)] or [0]) + 1, "name": item['snippet']['title'], "yt_id": item['id'], "thumbnail": item['snippet']['thumbnails']['default']['url'], "status": "Connected 🟢", "client_id": c_id, "creds_list": [creds.to_json()]})
+            database_channel.append({"id": max([c.get('id', 0) for c in database_channel if isinstance(c.get('id'), int)] or [0]) + 1, "name": item['snippet']['title'], "yt_id": item['id'], "thumbnail": item['snippet']['thumbnails']['default']['url'], "status": "Connected 🟢", "client_id": c_id, "creds_list": [creds.to_json()],
+                                     "content_mode": asset_pool.DEFAULT_MODE})
         else:
             ch = database_channel[c_idx]
             ch['client_id'] = c_id

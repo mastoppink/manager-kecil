@@ -27,7 +27,7 @@ class ContentModeTests(unittest.TestCase):
         self.addCleanup(patch.stopall)
         self.root = self.tmp.name
         self.channels = [{'id': 1, 'name': 'Ads', 'yt_id': 'ADS', 'thumbnail': '', 'status': 'Connected', 'content_mode': 'adsense'},
-                         {'id': 2, 'name': 'Cid', 'yt_id': 'CID', 'thumbnail': '', 'status': 'Connected'}]
+                         {'id': 2, 'name': 'Cid', 'yt_id': 'CID', 'thumbnail': '', 'status': 'Connected', 'content_mode': 'cid'}]
         app = self.module
         patch.multiple(app, database_channel=self.channels, active_tasks=[], BASE_UPLOAD=self.root, BASE_DIR=self.root).start()
         patch.object(app, 'save_channels').start()

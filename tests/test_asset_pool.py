@@ -151,8 +151,15 @@ class AssetPoolTests(unittest.TestCase):
         self.assertEqual(len(self.ls()), 6)
 
     def test_channel_mode_and_audio_folder(self):
-        self.assertEqual(ap.channel_mode({}), ap.MODE_CID)
-        self.assertEqual(ap.channel_mode({'content_mode': 'adsense'}), ap.MODE_ADSENSE)
+        self.assertEqual(ap.channel_mode({'yt_id': 'baru'}), ap.MODE_ADSENSE)  # default channel baru
+        self.assertEqual(ap.channel_mode({}), ap.MODE_CID)              # channel tidak ditemukan
+        self.assertEqual(ap.channel_mode({'content_mode': 'aneh'}), ap.MODE_ADSENSE)
+        self.assertEqual(ap.channel_mode({'content_mode': 'cid'}), ap.MODE_CID)
+        self.assertEqual(ap.channel_mode(None), ap.MODE_CID)            # tanpa channel: tidak ada stok sekali pakai
+        legacy = [{'yt_id': 'a'}, {'yt_id': 'b', 'content_mode': 'adsense'}, {'yt_id': 'c', 'content_mode': 'cid'}]
+        self.assertTrue(ap.pin_legacy_modes(legacy))
+        self.assertEqual([c['content_mode'] for c in legacy], ['cid', 'adsense', 'cid'])
+        self.assertFalse(ap.pin_legacy_modes(legacy))
         self.assertEqual(ap.audio_folder(ap.MODE_ADSENSE), 'audio_non_cid')
         self.assertEqual(ap.audio_folder(ap.MODE_CID), 'audio_cid')
 
