@@ -17,6 +17,14 @@
   .gal-progress .bar { position: absolute; inset: 0 auto 0 0; width: 0; background: rgba(62,166,255,.25); transition: width .2s; }
   .gal-progress span { position: relative; }
   .titles-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  .dd-list { max-height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+  .dd-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 13px; cursor: pointer; }
+  .dd-item + .dd-item { border-top: 1px solid var(--border); }
+  .dd-item.off { opacity: .5; cursor: default; }
+  .dd-item input { accent-color: var(--blue); width: 16px; height: 16px; flex-shrink: 0; }
+  .dj-item { display: grid; grid-template-columns: minmax(0, 1fr) 160px; gap: 4px 16px; padding: 10px 20px; border-top: 1px solid var(--border); font-size: 13px; }
+  .dj-bar { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
+  .dj-bar > div { height: 100%; background: var(--blue); transition: width .3s; }
   .sd-list { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; max-height: 320px; overflow-y: auto; }
   .sd-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
   .sd-item:hover { background: var(--hover); }
@@ -110,6 +118,22 @@
     </div>
   </section>
 
+  <dialog class="st-dialog" id="drive-dialog" style="width:min(640px, calc(100vw - 32px))">
+    <div class="st-dialog-body">
+      <h2 class="st-dialog-title" id="dd-title">Impor dari Google Drive</h2>
+      <p class="st-dialog-text">Tempel link file atau folder Google Drive dengan akses <b>"Siapa saja yang memiliki link"</b>.</p>
+      <div class="st-row" style="flex-wrap:nowrap;margin-top:16px">
+        <input type="url" id="dd-url" class="st-input" placeholder="https://drive.google.com/drive/folders/…" onkeydown="if(event.key==='Enter')driveList()">
+        <button class="st-btn" id="dd-list-btn" onclick="driveList()">Lihat isi</button>
+      </div>
+      <div id="dd-result" style="margin-top:16px"></div>
+    </div>
+    <div class="st-dialog-actions">
+      <button class="st-btn st-btn-text" onclick="document.getElementById('drive-dialog').close()">Batal</button>
+      <button class="st-btn st-btn-primary" id="dd-ok" onclick="driveImport()" disabled>Impor</button>
+    </div>
+  </dialog>
+
   <dialog class="st-dialog" id="secret-dialog" style="width:min(560px, calc(100vw - 32px))">
     <div class="st-dialog-body">
       <h2 class="st-dialog-title" id="sd-title">Pilih client secret</h2>
@@ -184,6 +208,15 @@
 
     <div id="gallery-content" class="st-stack hidden">
       <div id="gallery-mode" class="st-callout"></div>
+      <div id="drive-jobs" class="st-card hidden">
+        <div class="st-card-head">
+          <div>
+            <h3 class="st-card-title">Impor dari Google Drive</h3>
+            <p class="st-card-sub">File diunduh satu per satu di server. Halaman ini boleh ditutup.</p>
+          </div>
+        </div>
+        <div id="drive-jobs-list"></div>
+      </div>
       <div class="st-stats">
         <div class="st-stat"><div class="st-stat-label">Audio non-CID</div><div class="st-stat-value" id="count-audio-non">–</div></div>
         <div class="st-stat"><div class="st-stat-label">Audio CID</div><div class="st-stat-value" id="count-audio-cid">–</div></div>
@@ -742,6 +775,7 @@ async function loadGallery() {
   document.getElementById('count-thumbnails').innerText = counts.thumbnails ?? 0;
   document.getElementById('count-base_video').innerText = counts.base_videos ?? 0;
 
+  if (!loadDriveJobs.wasRunning) loadDriveJobs();
   const adsense = pool.mode === 'adsense';
   const folders = pool.folders || {};
   const modeBox = document.getElementById('gallery-mode');
@@ -782,6 +816,7 @@ async function loadGallery() {
           <h3 class="st-card-title">${t.label} <span class="st-muted" style="font-weight:400">· ${items.length}${folder && adsense ? ' tersisa' : ''}${inUse}</span></h3>
           <div class="st-row">
             ${items.length ? `<button class="st-btn st-btn-sm st-btn-danger" onclick="clearFolder('${t.type}')">Kosongkan</button>` : ''}
+            <button class="st-btn st-btn-sm st-btn-text" onclick="openDriveDialog('${t.type}', '${t.label}')">Dari Drive</button>
             <button id="btn-up-${t.key}" class="st-btn st-btn-sm gal-progress" onclick="document.getElementById('upload-${t.key}').click()">
               <div id="prog-${t.key}" class="bar"></div><span id="btn-text-${t.key}">Upload</span>
             </button>
@@ -887,6 +922,132 @@ async function clearFolder(type) {
   fetch('/api/clear_gallery_folder', { method: 'POST', body: fd })
     .then(r => r.json()).then(() => loadGallery())
     .catch(() => toast('Gagal mengosongkan folder', 'error'));
+}
+
+// ───────── IMPOR GOOGLE DRIVE ─────────
+let driveTarget = { type: '', label: '' };
+let driveItems = [];
+let drivePoll = null;
+
+function openDriveDialog(type, label) {
+  if (!galleryChannel()) { toast('Pilih channel dulu', 'error'); return; }
+  driveTarget = { type, label };
+  driveItems = [];
+  document.getElementById('dd-title').textContent = `Impor ke ${label}`;
+  document.getElementById('dd-url').value = '';
+  document.getElementById('dd-result').innerHTML = '';
+  document.getElementById('dd-ok').disabled = true;
+  document.getElementById('drive-dialog').showModal();
+  document.getElementById('dd-url').focus();
+}
+
+async function driveList() {
+  const url = document.getElementById('dd-url').value.trim();
+  if (!url) return;
+  const btn = document.getElementById('dd-list-btn');
+  const box = document.getElementById('dd-result');
+  btn.disabled = true;
+  box.innerHTML = '<div class="st-muted">Membaca isi link…</div>';
+  try {
+    const d = await (await fetch('/api/drive/list', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ yt_id: galleryChannel(), type: driveTarget.type, url })
+    })).json();
+    if (d.status !== 'success') throw new Error(d.message);
+    driveItems = d.items.map(it => ({ ...it, checked: it.allowed && !it.exists }));
+    driveRenderList();
+  } catch (e) {
+    box.innerHTML = `<div class="st-callout err"><div>${esc(e.message || 'Gagal membaca link')}</div></div>`;
+    document.getElementById('dd-ok').disabled = true;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function driveRenderList() {
+  const box = document.getElementById('dd-result');
+  if (!driveItems.length) { box.innerHTML = '<div class="st-muted">Folder kosong.</div>'; return; }
+  const picked = driveItems.filter(i => i.checked).length;
+  const usable = driveItems.filter(i => i.allowed && !i.exists);
+  box.innerHTML = `
+    <div class="st-row" style="justify-content:space-between;margin-bottom:8px">
+      <span class="st-muted" style="font-size:13px">${picked} dari ${driveItems.length} file dipilih</span>
+      ${usable.length > 1 ? '<button class="st-btn st-btn-text st-btn-sm" onclick="driveToggleAll()">Pilih semua</button>' : ''}
+    </div>
+    <div class="dd-list">${driveItems.map((it, i) => {
+      const note = !it.allowed ? 'jenis file tidak sesuai folder ini' : it.exists ? 'sudah ada di server' : '';
+      return `<label class="dd-item ${note ? 'off' : ''}" title="${esc(it.path)}">
+        <input type="checkbox" ${it.checked ? 'checked' : ''} ${note ? 'disabled' : ''} onchange="driveItems[${i}].checked=this.checked; driveRenderList()">
+        <span class="st-ellipsis" style="flex:1">${esc(it.name)}</span>
+        ${note ? `<span class="st-muted" style="font-size:12px;flex-shrink:0">${note}</span>` : ''}
+      </label>`;
+    }).join('')}</div>`;
+  document.getElementById('dd-ok').disabled = !picked;
+  document.getElementById('dd-ok').textContent = picked ? `Impor ${picked} file` : 'Impor';
+}
+
+function driveToggleAll() {
+  const usable = driveItems.filter(i => i.allowed && !i.exists);
+  const all = usable.every(i => i.checked);
+  usable.forEach(i => i.checked = !all);
+  driveRenderList();
+}
+
+async function driveImport() {
+  const items = driveItems.filter(i => i.checked).map(i => ({ id: i.id, name: i.name }));
+  if (!items.length) return;
+  try {
+    const d = await (await fetch('/api/drive/import', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ yt_id: galleryChannel(), type: driveTarget.type, items })
+    })).json();
+    if (d.status !== 'success') throw new Error(d.message);
+    document.getElementById('drive-dialog').close();
+    toast(d.message);
+    loadDriveJobs();
+  } catch (e) {
+    toast(e.message || 'Gagal memulai impor', 'error');
+  }
+}
+
+function fmtMB(b) { return (b / 1048576).toFixed(1) + ' MB'; }
+
+async function loadDriveJobs() {
+  const yt_id = galleryChannel();
+  const card = document.getElementById('drive-jobs');
+  clearTimeout(drivePoll);
+  if (!yt_id) { card.classList.add('hidden'); return; }
+  let jobs = [];
+  try { jobs = await (await fetch('/api/drive/jobs?yt_id=' + encodeURIComponent(yt_id))).json(); } catch (e) { return; }
+  if (galleryChannel() !== yt_id) return;
+  card.classList.toggle('hidden', !jobs.length);
+  const label = { menunggu: 'Menunggu', mengunduh: 'Mengunduh', selesai: 'Selesai', dilewati: 'Dilewati', gagal: 'Gagal', dibatalkan: 'Dibatalkan' };
+  const chip = { selesai: 'ok', gagal: 'err', dilewati: 'warn', mengunduh: '', menunggu: 'plain', dibatalkan: 'plain' };
+  document.getElementById('drive-jobs-list').innerHTML = jobs.map(j => `
+    <div class="st-row" style="justify-content:space-between;padding:10px 20px;border-top:1px solid var(--border)">
+      <span style="font-weight:500">${esc(j.label)} · ${j.items.length} file</span>
+      ${j.status === 'berjalan' ? `<button class="st-btn st-btn-sm st-btn-danger" onclick="driveCancel('${j.id}')">Batalkan</button>` : `<span class="st-chip ${j.status === 'selesai' ? 'ok' : 'plain'}">${j.status === 'selesai' ? 'Selesai' : 'Dibatalkan'}</span>`}
+    </div>
+    ${j.items.map(it => {
+      const pct = it.total ? Math.round(it.bytes * 100 / it.total) : 0;
+      return `<div class="dj-item">
+        <span class="st-ellipsis">${esc(it.name)}</span>
+        <span style="text-align:right"><span class="st-chip ${chip[it.status] || ''}">${label[it.status] || it.status}${it.status === 'mengunduh' && it.total ? ' ' + pct + '%' : ''}</span></span>
+        ${it.status === 'mengunduh' ? `<div class="dj-bar"><div style="width:${pct}%"></div></div><span class="st-muted" style="font-size:12px">${fmtMB(it.bytes)}${it.total ? ' / ' + fmtMB(it.total) : ''}</span>` : ''}
+        ${it.error ? `<span class="st-muted" style="font-size:12px;grid-column:1/-1">${esc(it.error)}</span>` : ''}
+      </div>`;
+    }).join('')}`).join('');
+  const running = jobs.some(j => j.status === 'berjalan');
+  const justFinished = loadDriveJobs.wasRunning && !running;
+  loadDriveJobs.wasRunning = running;
+  if (running) drivePoll = setTimeout(loadDriveJobs, 2000);
+  if (justFinished) loadGallery();
+}
+
+async function driveCancel(job_id) {
+  if (!await confirmDialog('Batalkan impor?', 'File yang belum selesai diunduh tidak disimpan.', 'Batalkan impor', true)) return;
+  await fetch('/api/drive/cancel', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ job_id }) });
+  loadDriveJobs();
 }
 
 // ───────── BANK JUDUL ─────────

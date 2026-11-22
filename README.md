@@ -22,6 +22,7 @@ Fitur lain:
   - **Content ID:** footage background boleh dipakai berulang (diacak bergiliran supaya tidak kembar berurutan), audio diambil dari folder Audio CID.
   - **AdSense:** setiap background, background Shorts, dan video sumber hanya dipakai sekali untuk menghindari konten berulang. File yang sudah masuk video yang berhasil dipindah ke subfolder `_terpakai/`; kalau render atau upload gagal, file kembali ke stok. Batch ditolak sejak awal bila stok tidak cukup. Audio diambil dari folder Audio non-CID.
   - Sisa stok dan file terpakai bisa dilihat, dikembalikan ke stok, atau dihapus di *Settings → Galeri Aset*.
+- **Impor dari Google Drive** (*Settings → Galeri Aset → Dari Drive* di setiap folder): tempel link file atau folder Drive dengan akses "Siapa saja yang memiliki link", pilih file, lalu server mengunduhnya di background dengan progres per file. File yang sudah ada dilewati, file yang izin download-nya dimatikan pemilik ditandai gagal, dan impor berhenti otomatis kalau ruang disk tinggal kurang dari 2 GB.
 - **Kuota API per channel.** Setiap channel memakai `client_secret.json` miliknya sendiri, sehingga kuota YouTube API tidak saling berebut. Satu file secret juga boleh dipakai beberapa channel.
 - **Upload bisa dilanjutkan.** Upload yang terputus dilanjutkan dari posisi terakhir.
 - **Cooldown otomatis.** Kalau kuota atau limit upload habis, channel diberi jeda otomatis, dan jeda itu tetap berlaku setelah server restart.

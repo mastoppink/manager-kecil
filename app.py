@@ -8,7 +8,7 @@ import secrets
 import uuid
 from core.job_state import channel_id as task_channel_id, terminal as task_terminal
 from core.json_store import read_json, write_json, update_json
-from core import channel_auth, updater, asset_pool
+from core import channel_auth, updater, asset_pool, drive_import
 from core.media import validate_video
 from core.upload_state import DurableUpload, has_pending_upload, state_path
 from flask import Flask, render_template, request, jsonify, redirect, url_for, send_from_directory, session
@@ -2551,7 +2551,7 @@ def get_asset_counts():
     if not yt_id: return jsonify({"audio_non_cid": 0, "audio_cid": 0, "backgrounds": 0, "shorts_bg": 0, "thumbnails": 0, "base_videos": 0})
     def count_files(sub):
         path = get_channel_folder(yt_id, sub)
-        return len([f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))])
+        return len([f for f in os.listdir(path) if not f.startswith('.') and os.path.isfile(os.path.join(path, f))])
     return jsonify({
         "audio_non_cid": count_files("audio_non_cid"), 
         "audio_cid": count_files("audio_cid"), 
@@ -2573,7 +2573,7 @@ def get_gallery():
         if os.path.exists(path):
             for f in os.listdir(path):
                 fp = os.path.join(path, f)
-                if os.path.isfile(fp):
+                if not f.startswith('.') and os.path.isfile(fp):
                     size_mb = round(os.path.getsize(fp) / (1024*1024), 2)
                     item = {"name": f, "size": f"{size_mb} MB"}
                     ext = f.rsplit('.', 1)[-1].lower() if '.' in f else ''
@@ -3054,6 +3054,60 @@ def direct_upload_create():
         queue_put(blueprint)
     save_tasks_db()
     return jsonify({"status": "success", "message": f"{len(items)} video masuk antrean upload."})
+
+# --- IMPOR DARI GOOGLE DRIVE (LINK PUBLIK) ---
+DRIVE_TYPES = {
+    'audio_non_cid': ('audio_non_cid', 'Audio non-CID', ('.mp3', '.wav')),
+    'audio_cid':     ('audio_cid', 'Audio CID', ('.mp3', '.wav')),
+    'background':    ('backgrounds', 'Background 16:9', FACTORY_BG_EXTS),
+    'shorts_bg':     ('shorts_bg', 'Background Shorts 9:16', asset_pool.BG_EXTS),
+    'thumbnail':     ('thumbnails', 'Thumbnail', ('.jpg', '.jpeg', '.png', '.webp')),
+    'shorts_thumb':  ('shorts_thumb', 'Thumbnail Shorts', ('.jpg', '.jpeg', '.png', '.webp')),
+    'base_video':    ('base_videos', 'Video sumber', asset_pool.VIDEO_EXTS),
+    'ready_video':   ('ready_videos', 'Video siap upload', READY_EXTS),
+}
+
+def _drive_target(data):
+    yt_id, g_type = str(data.get('yt_id') or ''), str(data.get('type') or '')
+    if g_type not in DRIVE_TYPES:
+        raise ValueError('Folder tujuan tidak dikenal.')
+    if not any(c.get('yt_id') == yt_id for c in database_channel):
+        raise ValueError('Channel tidak ditemukan.')
+    folder, label, exts = DRIVE_TYPES[g_type]
+    return yt_id, get_channel_folder(yt_id, folder), label, exts
+
+@app.route('/api/drive/list', methods=['POST'])
+def drive_list():
+    data = request.get_json(silent=True) or {}
+    try:
+        _, folder, label, exts = _drive_target(data)
+        kind, items = drive_import.list_link(data.get('url'))
+    except (ValueError, drive_import.DriveError) as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    existing = set(os.listdir(folder))
+    for it in items:
+        it['allowed'] = it['name'].lower().endswith(exts)
+        it['exists'] = it['name'] in existing
+    return jsonify({"status": "success", "kind": kind, "folder_label": label, "items": items})
+
+@app.route('/api/drive/import', methods=['POST'])
+def drive_import_start():
+    data = request.get_json(silent=True) or {}
+    try:
+        yt_id, folder, label, exts = _drive_target(data)
+        job_id = drive_import.start_job(yt_id, folder, label, data.get('items') or [], exts)
+    except (ValueError, drive_import.DriveError) as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    return jsonify({"status": "success", "job_id": job_id, "message": "Impor dari Google Drive dimulai."})
+
+@app.route('/api/drive/jobs')
+def drive_jobs():
+    return jsonify(drive_import.jobs_for(request.args.get('yt_id', '')))
+
+@app.route('/api/drive/cancel', methods=['POST'])
+def drive_cancel():
+    ok = drive_import.cancel_job(str((request.get_json(silent=True) or {}).get('job_id') or ''))
+    return jsonify({"status": "success" if ok else "error", "message": "Impor dibatalkan." if ok else "Impor tidak ditemukan."})
 
 # --- MODE KONTEN & STOK FOOTAGE ---
 def _factory_need(bp):
