@@ -1538,20 +1538,22 @@ class VisualEngine:
 
                 if card_alpha > 0.02:
                     font = cv2.FONT_HERSHEY_SIMPLEX
-                    (tw_sub, _), _ = cv2.getTextSize("NOW PLAYING", font, 0.42, 1)
-                    (tw_main, th_main), _ = cv2.getTextSize(current_title, font, 0.65, 2)
+                    k = h / 720.0  # desain kartu dibuat untuk 720p; ikut membesar di 1080p/2K/4K
+                    px = lambda v: max(1, int(round(v * k)))
+                    (tw_sub, _), _ = cv2.getTextSize("NOW PLAYING", font, 0.42 * k, px(1))
+                    (tw_main, th_main), _ = cv2.getTextSize(current_title, font, 0.65 * k, px(2))
 
-                    card_x = max(10, 36 + slide_offset)
-                    card_y = 32
-                    card_w = max(tw_sub, tw_main) + 92
-                    card_h = 68
-                    x2 = min(w - 10, card_x + card_w)
-                    y2 = min(h - 10, card_y + card_h)
+                    card_x = max(px(10), px(36) + int(slide_offset * k))
+                    card_y = px(32)
+                    card_w = max(tw_sub, tw_main) + px(92)
+                    card_h = px(68)
+                    x2 = min(w - px(10), card_x + card_w)
+                    y2 = min(h - px(10), card_y + card_h)
                     real_w, real_h = x2 - card_x, y2 - card_y
 
-                    if real_w > 40 and real_h > 20:
+                    if real_w > px(40) and real_h > px(20):
                         # 1. Buat Mask Kapsul Membulat (Rounded Rectangle)
-                        rad = 16
+                        rad = px(16)
                         mask = np.zeros((real_h, real_w), dtype=np.uint8)
                         cv2.rectangle(mask, (rad, 0), (real_w - rad, real_h), 255, -1)
                         cv2.rectangle(mask, (0, rad), (real_w, real_h - rad), 255, -1)
@@ -1560,30 +1562,31 @@ class VisualEngine:
 
                         # 2. Efek Frosted Glass: Blur area video di balik kartu + Tint Kaca Gelap Transparan
                         roi = frame[card_y:y2, card_x:x2].copy()
-                        blurred_roi = cv2.GaussianBlur(roi, (25, 25), 0)
+                        blur_k = px(25) | 1  # ukuran kernel blur harus ganjil
+                        blurred_roi = cv2.GaussianBlur(roi, (blur_k, blur_k), 0)
                         glass_tint = np.full_like(roi, (32, 22, 14)) # BGR Dark Slate Glass
                         frosted = cv2.addWeighted(blurred_roi, 0.55, glass_tint, 0.45, 0)
 
                         # 3. Gambar Border Kaca Tipis, Mini Equalizer, & Teks di atas lapisan Frosted
                         border_canvas = frosted.copy()
-                        cv2.rectangle(border_canvas, (rad, 0), (real_w - rad, 1), (235, 225, 210), -1)
-                        cv2.rectangle(border_canvas, (rad, real_h - 2), (real_w - rad, real_h - 1), (180, 170, 150), -1)
+                        cv2.rectangle(border_canvas, (rad, 0), (real_w - rad, px(1)), (235, 225, 210), -1)
+                        cv2.rectangle(border_canvas, (rad, real_h - px(2)), (real_w - rad, real_h - 1), (180, 170, 150), -1)
                         frosted = cv2.addWeighted(frosted, 0.7, border_canvas, 0.3, 0)
 
                         # Mini Equalizer Bars di sisi kiri kartu (Bergerak mengikuti beat)
-                        eq_base_x = 22
-                        eq_base_y = real_h - 16
+                        eq_base_x = px(22)
+                        eq_base_y = real_h - px(16)
                         accent_bgr = (255, 212, 0) # Cyan khas manager-kecil (#00d4ff dalam BGR)
                         for b in range(3):
                             wave = np.sin(t * 8.0 + b * 1.5) * 3.0
                             bh = int(8 + (self.beat_intensity * (18 if b == 1 else 12)) + wave)
-                            bh = max(4, min(34, bh))
-                            bx1 = eq_base_x + b * 9
-                            cv2.rectangle(frosted, (bx1, eq_base_y - bh), (bx1 + 5, eq_base_y), accent_bgr, -1, cv2.LINE_AA)
+                            bh = px(max(4, min(34, bh)))
+                            bx1 = eq_base_x + b * px(9)
+                            cv2.rectangle(frosted, (bx1, eq_base_y - bh), (bx1 + px(5), eq_base_y), accent_bgr, -1, cv2.LINE_AA)
 
                         # Teks "NOW PLAYING" & Judul Lagu
-                        cv2.putText(frosted, "NOW PLAYING", (58, 25), font, 0.40, (255, 220, 100), 1, cv2.LINE_AA)
-                        cv2.putText(frosted, current_title, (58, 50), font, 0.65, (250, 250, 250), 2, cv2.LINE_AA)
+                        cv2.putText(frosted, "NOW PLAYING", (px(58), px(25)), font, 0.40 * k, (255, 220, 100), px(1), cv2.LINE_AA)
+                        cv2.putText(frosted, current_title, (px(58), px(50)), font, 0.65 * k, (250, 250, 250), px(2), cv2.LINE_AA)
 
                         # 4. Gabungkan ke Frame Utama sesuai transparansi Fade-In / Fade-Out
                         blended_roi = cv2.addWeighted(roi, 1.0 - (card_alpha * 0.88), frosted, card_alpha * 0.88, 0)
@@ -1600,10 +1603,54 @@ def hex_to_rgb(hex_color):
         return (255, 255, 255) # Default putih jika format salah
     return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
 
+RESOLUTIONS = {
+    '720p':  (1280, 720),
+    '1080p': (1920, 1080),
+    '2k':    (2560, 1440),
+    '4k':    (3840, 2160),
+}
+RESOLUTION_LABELS = {'720p': '720p', '1080p': '1080p', '2k': '2K', '4k': '4K', 'source': 'sesuai sumber'}
+MAX_RENDER_SIDE = 3840
+
+def probe_media_size(path):
+    """(lebar, tinggi) gambar atau video; None bila gagal dibaca."""
+    try:
+        if path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp')):
+            from PIL import Image
+            with Image.open(path) as img:
+                return img.size
+        cap = cv2.VideoCapture(path)
+        try:
+            w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        finally:
+            cap.release()
+        return (w, h) if w > 0 and h > 0 else None
+    except Exception:
+        return None
+
+def resolve_render_size(resolution, bg_paths):
+    """Ukuran output render. 'source' mengikuti background/video pertama (genap, maks 4K, min 640px)."""
+    if resolution in RESOLUTIONS:
+        return RESOLUTIONS[resolution]
+    if resolution == 'source':
+        for path in bg_paths or []:
+            size = probe_media_size(path)
+            if not size:
+                continue
+            w, h = size
+            scale = min(1.0, MAX_RENDER_SIDE / max(w, h))
+            w, h = w * scale, h * scale
+            if min(w, h) < 360:  # sumber terlalu kecil: naikkan agar visualizer tetap layak
+                up = 360 / min(w, h)
+                w, h = w * up, h * up
+            return int(w) // 2 * 2, int(h) // 2 * 2
+    return RESOLUTIONS['720p']
+
 def render_video_core(task_id, audio_path, bg_paths, output_path, duration, cfg):
-    # 🔥 1. RESOLUSI FHD 1080p (Lebih Tajam & Jernih) 🔥
-    # 🔥 PERINTAH 3: RESOLUSI 720p 🔥
-    w, h = 1280, 720; fps = 30; total_f = int(duration * fps)
+    resolution = str(cfg.get('resolution') or '720p').lower()
+    w, h = resolve_render_size(resolution, bg_paths)
+    fps = 30; total_f = int(duration * fps)
+    res_label = f"{RESOLUTION_LABELS.get(resolution, resolution)} ({w}×{h})" if resolution == 'source' else RESOLUTION_LABELS.get(resolution, '720p')
     
     c_bot = hex_to_rgb(cfg.get('color_bot', '#10b981'))
     c_top = hex_to_rgb(cfg.get('color_top', '#0ea5e9'))
@@ -1617,7 +1664,7 @@ def render_video_core(task_id, audio_path, bg_paths, output_path, duration, cfg)
     with db_lock:
         for d in active_tasks:
             if d['id'] == task_id:
-                d['status'] = "Rendering 720p... ⚡"
+                d['status'] = f"Rendering {res_label}... ⚡"
                 d['updated_at'] = time.time()  # 🔥 BARU: timestamp untuk watchdog stuck
                 d['started_at'] = time.time() # 🔥 CATAT WAKTU START
     save_tasks_db()
@@ -1628,7 +1675,8 @@ def render_video_core(task_id, audio_path, bg_paths, output_path, duration, cfg)
         '-i', '-', 
         '-i', audio_path, 
         '-t', str(duration),
-        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-threads', '0', '-pix_fmt', 'yuv420p', output_path
+        '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18' if w * h <= 1920 * 1080 else '20',
+        '-threads', '0', '-pix_fmt', 'yuv420p', output_path
     ]
     
     partial_output = output_path + '.rendering.mp4'
@@ -2041,6 +2089,7 @@ def background_worker():
                 preset['track_schedule'] = track_schedule
                 preset['channel_name'] = ch_name
                 preset['source_mode'] = source_mode
+                preset['resolution'] = task.get('resolution', '720p')
 
                 base_video = os.path.join(BASE_UPLOAD, f"temp_v_{task_id}.mp4")
                 final_video = os.path.join(BASE_DIR, f"static/final_{task_id}.mp4")
@@ -3262,7 +3311,8 @@ def batch_create():
             "tags": data.get('tags', ''), "privacy": data.get('privacy', 'public'), "playlist_id": data.get('playlist_id', ''),
             "use_floating_card": data.get('use_floating_card', False),
             "floating_card_mode": data.get('floating_card_mode', 'intro_5s'),
-            "source_mode": data.get('source_mode', 'mix')  # 🔥 BARU: simpan jalur render engine di blueprint
+            "source_mode": data.get('source_mode', 'mix'),  # 🔥 BARU: simpan jalur render engine di blueprint
+            "resolution": data.get('resolution') if data.get('resolution') in (*RESOLUTIONS, 'source') else '720p',
         }
         with db_lock:
             active_tasks.append({

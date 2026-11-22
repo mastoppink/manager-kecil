@@ -745,7 +745,18 @@ input[type=range] { accent-color: var(--accent); }
             <div class="fs-title">⬡ Target Channel & Kuantitas</div>
             <div class="fg"><label class="fl">Channel YouTube</label><select id="bc-channel" onchange="onBcChannelChange()"><option value="">-- Pilih Channel --</option></select></div>
             <div class="fg"><label class="fl">Pilih Playlist <small>(opsional)</small></label><select id="bc-playlist"><option value="">-- Tidak masuk playlist --</option></select></div>
-            <div class="fg" style="margin-bottom:0"><label class="fl">Jumlah Final Video</label><input type="number" id="bc-count" value="5" min="1" max="100" oninput="updateBatchPreview()"></div>
+            <div class="fg"><label class="fl">Jumlah Final Video</label><input type="number" id="bc-count" value="5" min="1" max="100" oninput="updateBatchPreview()"></div>
+            <div class="fg" style="margin-bottom:0">
+              <label class="fl" for="bc-resolution">Resolusi output</label>
+              <select id="bc-resolution" onchange="onResolutionChange()">
+                <option value="720p">720p HD (paling cepat)</option>
+                <option value="1080p">1080p Full HD</option>
+                <option value="2k">2K QHD (1440p)</option>
+                <option value="4k">4K UHD (2160p)</option>
+                <option value="source">Sesuai video/background sumber</option>
+              </select>
+              <div id="bc-resolution-hint" class="fl" style="margin-top:6px;font-size:12px"></div>
+            </div>
           </div>
 
           <div class="form-section">
@@ -2054,6 +2065,26 @@ function applyBcMode(yt_id) {
   }).catch(() => {});
 }
 
+const RESOLUTION_HINTS = {
+  '720p': 'Render paling cepat. Bagus untuk video musik/visualizer.',
+  '1080p': 'Lebih tajam. Waktu render sedikit lebih lama dari 720p.',
+  '2k': 'Sekitar 2× lebih lama dari 720p, file lebih besar.',
+  '4k': 'Sekitar 3–4× lebih lama dari 720p dan file jauh lebih besar. Pastikan CPU & disk VPS cukup.',
+  'source': 'Mengikuti ukuran background pertama (mode Klasik) atau video sumber (mode Video Utuh), maksimal 4K.',
+};
+function onResolutionChange() {
+  const v = document.getElementById('bc-resolution').value;
+  try { localStorage.setItem('mk_resolution', v); } catch (e) {}
+  document.getElementById('bc-resolution-hint').textContent = RESOLUTION_HINTS[v] || '';
+}
+document.addEventListener('DOMContentLoaded', () => {
+  let saved = null;
+  try { saved = localStorage.getItem('mk_resolution'); } catch (e) {}
+  const sel = document.getElementById('bc-resolution');
+  if (saved && [...sel.options].some(o => o.value === saved)) sel.value = saved;
+  onResolutionChange();
+});
+
 function onBcChannelChange() {
   const yt_id = document.getElementById('bc-channel').value; 
   
@@ -2339,6 +2370,7 @@ function processBatch() {
     playlist_id: document.getElementById('bc-playlist').value,
     count: count,
     source_mode: document.getElementById('bc-source-mode').value,
+    resolution: document.getElementById('bc-resolution').value,
     mp3_non_cid_count: parseInt(document.getElementById('bc-mp3-non-cid').value) || 0,
     mp3_cid_count: parseInt(document.getElementById('bc-mp3-cid').value) || 0,
     vid_per_video: parseInt(document.getElementById('bc-vid-count').value) || 1,   // 🔥 BARU: Jml Video Acak utk mode Video Utuh
