@@ -141,6 +141,42 @@ class ChannelSecretRouteTests(unittest.TestCase):
         r = self.poll('zzzz-9999.apps.googleusercontent.com')
         self.assertEqual(r['status'], 'error')
 
+    def test_list_secrets_with_usage(self):
+        self.upload(CID_A)
+        self.upload(CID_B)
+        items = {s['client_id']: s for s in self.client.get('/api/secrets').get_json()}
+        self.assertEqual(set(items), {CID_A, CID_B})
+        self.assertEqual([u['yt_id'] for u in items[CID_A]['used_by']], ['UC_OLD'])
+        self.assertEqual(items[CID_B]['used_by'], [])
+
+    def test_use_secret_for_new_and_existing_channel(self):
+        self.upload(CID_A)
+        self.upload(CID_B)
+        r = self.client.post('/api/secrets/use', json={'client_id': CID_B}).get_json()
+        self.assertEqual(r['status'], 'success')
+        self.assertIn('secret=' + CID_B, r['auth_url'])
+        self.assertNotIn('yt_id=', r['auth_url'])
+        self.assertEqual(self.channels[0]['client_id'], CID_A)  # channel lama tidak berubah
+
+        r = self.client.post('/api/secrets/use', json={'client_id': CID_B, 'yt_id': 'UC_OLD'}).get_json()
+        self.assertIn('yt_id=UC_OLD', r['auth_url'])
+        self.assertEqual(self.channels[0]['client_id'], CID_B)
+        self.assertTrue(self.app.channel_auth.needs_relink(self.channels[0]))
+
+        self.assertEqual(self.client.post('/api/secrets/use', json={'client_id': 'zzzz-0000.apps.googleusercontent.com'}).status_code, 404)
+        self.assertEqual(self.client.post('/api/secrets/use', json={'client_id': CID_A, 'yt_id': 'NOPE'}).status_code, 404)
+
+    def test_delete_secret_only_when_unused(self):
+        self.upload(CID_A)
+        self.upload(CID_B)
+        r = self.client.post('/api/secrets/delete', json={'client_id': CID_A})
+        self.assertEqual(r.status_code, 409)
+        self.assertIn('Lama', r.get_json()['message'])
+        self.assertEqual(self.client.post('/api/secrets/delete', json={'client_id': CID_B}).status_code, 200)
+        self.assertEqual([s['client_id'] for s in self.client.get('/api/secrets').get_json()], [CID_A])
+        self.assertEqual(self.client.post('/api/secrets/delete', json={'client_id': CID_B}).status_code, 404)
+        self.assertEqual(self.client.post('/api/secrets/delete', json={'client_id': '../x'}).status_code, 400)
+
     def test_generate_link_needs_channel_secret(self):
         self.assertIn('error', self.client.get('/api/generate_tv_link').get_json())
         self.assertIn('error', self.client.get('/api/generate_tv_link?yt_id=UC_OLD').get_json())

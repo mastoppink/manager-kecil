@@ -2796,6 +2796,60 @@ def check_secret():
     try: return jsonify({"exists": os.path.isdir(SECRETS_DIR) and any(f.endswith('.json') for f in os.listdir(SECRETS_DIR))})
     except Exception: return jsonify({"exists": False})
 
+def _activation_link(client_id, yt_id=''):
+    return f"http://{request.host}/device_login?secret={client_id}" + (f"&yt_id={yt_id}" if yt_id else "")
+
+def _assign_secret(yt_id, client_id):
+    """Tetapkan secret ke channel. Token lama dari secret lain tidak berlaku sampai ditautkan ulang."""
+    global database_channel
+    with db_lock:
+        c = _target_channel(yt_id)
+        if not c:
+            return False
+        c['client_id'] = client_id
+        if channel_auth.needs_relink(c):
+            c['status'] = "Perlu Tautkan Ulang 🟠"
+    save_channels(database_channel)
+    return True
+
+@app.route('/api/secrets')
+def list_client_secrets():
+    secrets_list = channel_auth.list_secrets(SECRETS_DIR)
+    for item in secrets_list:
+        item['used_by'] = [{"yt_id": c['yt_id'], "name": c.get('name', c['yt_id'])}
+                           for c in database_channel if c.get('client_id') == item['client_id']]
+    return jsonify(secrets_list)
+
+@app.route('/api/secrets/use', methods=['POST'])
+def use_client_secret():
+    """Pilih secret tersimpan untuk channel baru (tanpa yt_id) atau untuk channel tertentu."""
+    data = request.get_json(silent=True) or {}
+    client_id, yt_id = str(data.get('client_id') or ''), str(data.get('yt_id') or '').strip()
+    if not channel_auth.valid_client_id(client_id) or not channel_auth.load_secret(SECRETS_DIR, client_id):
+        return jsonify({"status": "error", "message": "Client secret tidak ditemukan."}), 404
+    if yt_id:
+        c = _target_channel(yt_id)
+        if not c:
+            return jsonify({"status": "error", "message": "Channel tidak ditemukan."}), 404
+        same = c.get('client_id') == client_id
+        _assign_secret(yt_id, client_id)
+        msg = "Secret sama dengan yang sedang dipakai." if same else "Secret channel diganti. Tautkan ulang untuk mengaktifkannya."
+    else:
+        msg = "Buka link aktivasi di browser yang login ke akun channel baru."
+    return jsonify({"status": "success", "message": msg, "client_id": client_id, "auth_url": _activation_link(client_id, yt_id)})
+
+@app.route('/api/secrets/delete', methods=['POST'])
+def delete_client_secret():
+    client_id = str((request.get_json(silent=True) or {}).get('client_id') or '')
+    if not channel_auth.valid_client_id(client_id):
+        return jsonify({"status": "error", "message": "Client ID tidak valid."}), 400
+    users = [c.get('name', c['yt_id']) for c in database_channel if c.get('client_id') == client_id]
+    if users:
+        return jsonify({"status": "error", "message": "Masih dipakai channel: " + ", ".join(users) + ". Ganti secret channel tersebut dulu."}), 409
+    if not channel_auth.delete_secret(SECRETS_DIR, client_id):
+        return jsonify({"status": "error", "message": "Client secret tidak ditemukan."}), 404
+    return jsonify({"status": "success", "message": "Client secret dihapus."})
+
 @app.route('/api/upload_secret', methods=['POST'])
 def upload_secret():
     """Upload client_secret.json untuk satu channel (yt_id) atau untuk channel baru (tanpa yt_id)."""
@@ -2809,17 +2863,10 @@ def upload_secret():
         except (ValueError, UnicodeDecodeError) as e:
             return jsonify({"status": "error", "message": f"File secret tidak valid: {e}"})
         yt_id = (request.form.get('yt_id') or '').strip()
-        if yt_id:
-            with db_lock:
-                c = _target_channel(yt_id)
-                if not c:
-                    return jsonify({"status": "error", "message": "Channel tidak ditemukan."}), 404
-                c['client_id'] = client_id
-                if channel_auth.needs_relink(c):
-                    c['status'] = "Perlu Tautkan Ulang 🟠"
-            save_channels(database_channel)
-        link = f"http://{request.host}/device_login?secret={client_id}" + (f"&yt_id={yt_id}" if yt_id else "")
-        return jsonify({"status": "success", "message": "Client secret tersimpan untuk channel ini." if yt_id else "Client secret tersimpan.", "client_id": client_id, "auth_url": link})
+        if yt_id and not _assign_secret(yt_id, client_id):
+            return jsonify({"status": "error", "message": "Channel tidak ditemukan."}), 404
+        return jsonify({"status": "success", "message": "Client secret tersimpan untuk channel ini." if yt_id else "Client secret tersimpan.",
+                        "client_id": client_id, "auth_url": _activation_link(client_id, yt_id)})
     except Exception as e:
         return jsonify({"status": "error", "message": f"Izin ditolak server: {str(e)}"})
 

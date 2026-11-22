@@ -110,3 +110,34 @@ def migrate_channels(channels, secrets_dir, legacy_secret_file=None):
                 changed = True
                 break
     return changed
+
+
+def list_secrets(secrets_dir):
+    """Daftar client_secret tersimpan: client_id, project_id, waktu upload (terbaru dulu)."""
+    out = []
+    if not os.path.isdir(secrets_dir):
+        return out
+    for fname in os.listdir(secrets_dir):
+        if not fname.endswith('.json') or fname.startswith('.'):
+            continue
+        path = os.path.join(secrets_dir, fname)
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                client_id, data = parse_client_secret(f.read())
+        except (OSError, ValueError):
+            continue
+        if fname != client_id + '.json':
+            continue
+        conf = data.get('installed') or data.get('web')
+        out.append({'client_id': client_id, 'project_id': conf.get('project_id') or '',
+                    'uploaded_at': int(os.path.getmtime(path))})
+    out.sort(key=lambda s: s['uploaded_at'], reverse=True)
+    return out
+
+
+def delete_secret(secrets_dir, client_id):
+    path = secret_path(secrets_dir, client_id)
+    if not os.path.isfile(path):
+        return False
+    os.remove(path)
+    return True

@@ -17,6 +17,11 @@
   .gal-progress .bar { position: absolute; inset: 0 auto 0 0; width: 0; background: rgba(62,166,255,.25); transition: width .2s; }
   .gal-progress span { position: relative; }
   .titles-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  .sd-list { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; max-height: 320px; overflow-y: auto; }
+  .sd-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+  .sd-item:hover { background: var(--hover); }
+  .sd-item:has(input:checked) { border-color: var(--blue); background: rgba(62,166,255,.08); }
+  .sd-item input { accent-color: var(--blue); width: 18px; height: 18px; flex-shrink: 0; }
   .mode-sel { width: auto; padding: 6px 28px 6px 10px; font-size: 13px; }
   .used-box { border-top: 1px solid var(--border); }
   .used-box summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px 8px 20px; cursor: pointer; color: var(--text-2); font-size: 13px; list-style: none; }
@@ -89,7 +94,34 @@
         <tbody id="yt-channel-list"><tr><td colspan="5" class="st-empty">Memuat channel…</td></tr></tbody>
       </table>
     </div>
+
+    <div class="st-card" style="overflow-x:auto">
+      <div class="st-card-head">
+        <div>
+          <h3 class="st-card-title">Client secret</h3>
+          <p class="st-card-sub">File client_secret.json dari Google Cloud. Satu secret boleh dipakai beberapa channel.</p>
+        </div>
+        <button class="st-btn st-btn-sm" onclick="uploadSecretFile('')">Upload secret</button>
+      </div>
+      <table class="st-table">
+        <thead><tr><th>Project</th><th class="hide-sm">Client ID</th><th>Dipakai oleh</th><th class="col-actions" style="text-align:right">Aksi</th></tr></thead>
+        <tbody id="secret-list"><tr><td colspan="4" class="st-empty">Memuat…</td></tr></tbody>
+      </table>
+    </div>
   </section>
+
+  <dialog class="st-dialog" id="secret-dialog" style="width:min(560px, calc(100vw - 32px))">
+    <div class="st-dialog-body">
+      <h2 class="st-dialog-title" id="sd-title">Pilih client secret</h2>
+      <p class="st-dialog-text" id="sd-text"></p>
+      <div id="sd-list" class="sd-list"></div>
+      <button class="st-btn st-btn-text st-btn-sm" style="margin-top:8px" onclick="secretDialogUpload()">Upload file client_secret.json baru…</button>
+    </div>
+    <div class="st-dialog-actions">
+      <button class="st-btn st-btn-text" onclick="document.getElementById('secret-dialog').close()">Batal</button>
+      <button class="st-btn st-btn-primary" id="sd-ok" onclick="secretDialogConfirm()">Buat link aktivasi</button>
+    </div>
+  </dialog>
 
   <!-- ============ FACEBOOK ============ -->
   <section id="tab-facebook" class="tab-panel st-stack hidden">
@@ -380,6 +412,7 @@ async function loadChannels() {
     channelsCache = await res.json();
     renderChannelList();
     renderChannelSelect();
+    loadSecrets();
   } catch (e) {
     document.getElementById('yt-channel-list').innerHTML = `<tr><td colspan="5" class="st-empty">Gagal memuat channel: ${esc(e.message)}</td></tr>`;
   }
@@ -426,7 +459,7 @@ function renderChannelList() {
       <td class="hide-sm">${channelStatus(c)}</td>
       <td class="col-actions">
         <div class="st-row-actions">
-          ${iconBtn('key', 'Ganti client_secret', `pickSecret(channelsCache[${i}].yt_id)`)}
+          ${iconBtn('key', 'Pilih client secret', `openSecretDialog(channelsCache[${i}].yt_id)`)}
           ${iconBtn('link', 'Tautkan ulang', `generateTVLink(channelsCache[${i}].yt_id)`)}
           ${iconBtn('stop', 'Hentikan antrean', `stopChannelTasks(channelsCache[${i}].yt_id, channelsCache[${i}].name)`)}
           ${iconBtn('del', 'Hapus channel', `deleteChannel(channelsCache[${i}].yt_id, channelsCache[${i}].name)`, 'danger')}
@@ -499,7 +532,7 @@ function showTvLink(d, channelName) {
 }
 
 // Upload client_secret.json untuk channel tertentu (yt_id) atau channel baru (yt_id kosong)
-function pickSecret(yt_id) {
+function uploadSecretFile(yt_id) {
   const input = document.createElement('input');
   input.type = 'file'; input.accept = '.json';
   input.onchange = () => {
@@ -511,7 +544,7 @@ function pickSecret(yt_id) {
       .then(r => r.json()).then(d => {
         if (d.status !== 'success') { toast(d.message || 'Gagal upload secret', 'error'); return; }
         toast(d.message);
-        checkApiStatus(); loadChannels();
+        checkApiStatus(); loadChannels(); loadSecrets();
         const ch = channelsCache.find(c => c.yt_id === yt_id);
         showTvLink(d, ch && ch.name);
       }).catch(() => toast('Gagal upload client_secret.json', 'error'));
@@ -519,8 +552,110 @@ function pickSecret(yt_id) {
   input.click();
 }
 
+let secretsCache = [];
+let secretDialogTarget = '';
+
+async function loadSecrets() {
+  try {
+    secretsCache = await (await fetch('/api/secrets')).json();
+  } catch (e) {
+    secretsCache = [];
+  }
+  renderSecretList();
+}
+
+function secretLabel(s) {
+  return s.project_id || s.client_id.split('-')[0];
+}
+
+function renderSecretList() {
+  const body = document.getElementById('secret-list');
+  if (!secretsCache.length) {
+    body.innerHTML = '<tr><td colspan="4" class="st-empty"><b>Belum ada client secret</b>Upload file client_secret.json (tipe TVs and Limited Input devices).</td></tr>';
+    return;
+  }
+  body.innerHTML = secretsCache.map((s, i) => `
+    <tr>
+      <td><div style="font-weight:500" class="st-ellipsis">${esc(secretLabel(s))}</div>
+          <div class="st-muted" style="font-size:12px">Diupload ${new Date(s.uploaded_at * 1000).toLocaleDateString('id-ID')}</div></td>
+      <td class="hide-sm"><div class="st-mono st-ellipsis" style="max-width:220px" title="${esc(s.client_id)}">${esc(s.client_id)}</div></td>
+      <td>${s.used_by.length ? s.used_by.map(u => esc(u.name)).join(', ') : '<span class="st-muted">Belum dipakai</span>'}</td>
+      <td class="col-actions">
+        <div class="st-row-actions">
+          ${iconBtn('add', 'Tautkan channel baru dengan secret ini', `useSecret(secretsCache[${i}].client_id, '')`)}
+          ${s.used_by.length ? '' : iconBtn('del', 'Hapus secret', `deleteSecret(secretsCache[${i}].client_id)`, 'danger')}
+        </div>
+      </td>
+    </tr>`).join('');
+}
+
+// Dialog pilih secret. yt_id kosong = channel baru, terisi = ganti/tautkan ulang channel itu.
+async function openSecretDialog(yt_id) {
+  await loadSecrets();
+  if (!secretsCache.length) { uploadSecretFile(yt_id); return; }
+  secretDialogTarget = yt_id || '';
+  const ch = channelsCache.find(c => c.yt_id === yt_id);
+  document.getElementById('sd-title').textContent = ch ? `Client secret untuk ${ch.name}` : 'Tautkan channel baru';
+  document.getElementById('sd-text').textContent = ch
+    ? 'Pilih secret yang dipakai channel ini. Kalau secret diganti, channel perlu ditautkan ulang.'
+    : 'Pilih secret untuk channel yang akan ditautkan.';
+  const current = ch ? ch.client_id : '';
+  document.getElementById('sd-list').innerHTML = secretsCache.map((s, i) => `
+    <label class="sd-item">
+      <input type="radio" name="sd-secret" value="${i}" ${(current ? s.client_id === current : i === 0) ? 'checked' : ''}>
+      <div style="min-width:0;flex:1">
+        <div style="font-weight:500">${esc(secretLabel(s))}${s.client_id === current ? ' <span class="st-chip ok plain">dipakai sekarang</span>' : ''}</div>
+        <div class="st-mono st-ellipsis">${esc(s.client_id)}</div>
+        <div class="st-muted" style="font-size:12px">${s.used_by.length ? 'Dipakai: ' + s.used_by.map(u => esc(u.name)).join(', ') : 'Belum dipakai channel mana pun'}</div>
+      </div>
+    </label>`).join('');
+  document.getElementById('secret-dialog').showModal();
+}
+
+function secretDialogConfirm() {
+  const picked = document.querySelector('input[name="sd-secret"]:checked');
+  if (!picked) { toast('Pilih salah satu secret', 'error'); return; }
+  document.getElementById('secret-dialog').close();
+  useSecret(secretsCache[+picked.value].client_id, secretDialogTarget);
+}
+
+function secretDialogUpload() {
+  document.getElementById('secret-dialog').close();
+  uploadSecretFile(secretDialogTarget);
+}
+
+async function useSecret(client_id, yt_id) {
+  try {
+    const d = await (await fetch('/api/secrets/use', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_id, yt_id })
+    })).json();
+    if (d.status !== 'success') throw new Error(d.message);
+    if (yt_id) { loadChannels(); loadSecrets(); }
+    const ch = channelsCache.find(c => c.yt_id === yt_id);
+    showTvLink(d, ch && ch.name);
+  } catch (e) {
+    toast(e.message || 'Gagal memakai secret', 'error');
+  }
+}
+
+async function deleteSecret(client_id) {
+  if (!await confirmDialog('Hapus client secret?', 'File secret ini akan dihapus dari server. Channel baru tidak bisa ditautkan dengan secret ini lagi.', 'Hapus', true)) return;
+  try {
+    const d = await (await fetch('/api/secrets/delete', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_id })
+    })).json();
+    toast(d.message, d.status === 'success' ? '' : 'error');
+  } catch (e) {
+    toast('Gagal menghapus secret', 'error');
+  }
+  loadSecrets();
+  checkApiStatus();
+}
+
 function generateTVLink(yt_id) {
-  if (!yt_id) { pickSecret(''); return; }
+  if (!yt_id) { openSecretDialog(''); return; }
   const ch = channelsCache.find(c => c.yt_id === yt_id);
   fetch('/api/generate_tv_link?yt_id=' + encodeURIComponent(yt_id))
     .then(r => r.json()).then(d => showTvLink(d, ch && ch.name))
