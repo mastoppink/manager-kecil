@@ -462,6 +462,17 @@ input[type=color] { padding:0; height:36px; width:100%; border:1px solid var(--b
   .bottom-nav { display: none; }
 }
 
+/* ════════ UPLOAD LANGSUNG ════════ */
+.du-row { display: grid; grid-template-columns: 28px minmax(0, 1.2fr) minmax(0, 1.6fr) 150px; gap: 12px; align-items: center; padding: 10px 20px; border-top: 1px solid var(--border); }
+.du-row:first-child { border-top: 0; }
+.du-row.off { opacity: .5; }
+.du-row input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--accent); }
+.du-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.du-meta { font-size: 12px; color: var(--text2); }
+.du-date { font-family: var(--font-m); font-size: 12px; color: var(--yellow); text-align: right; }
+.du-empty { padding: 32px 20px; text-align: center; color: var(--text2); }
+@media (max-width: 768px) { .du-row { grid-template-columns: 28px minmax(0, 1fr); } .du-row > :nth-child(3), .du-row > :nth-child(4) { grid-column: 2; text-align: left; } }
+
 /* ════════ STUDIO OVERRIDES ════════ */
 body.studio { display: block; height: auto; overflow: visible; font-family: var(--font-d); background: var(--bg); color: var(--text); }
 body.studio::before { display: none; }
@@ -575,6 +586,7 @@ input[type=range] { accent-color: var(--accent); }
   </div>
   <nav class="fx-tabs" aria-label="Menu Factory">
     <button class="nav-item active" onclick="go('batch',this)" id="nb-batch">Batch Creator</button>
+    <button class="nav-item" onclick="go('direct',this)" id="nb-direct">Upload langsung</button>
     <button class="nav-item" onclick="go('tasks',this)" id="nb-tasks">Antrean Factory<span class="nav-badge" id="task-badge" style="display:none">0</span></button>
   </nav>
   <div class="content">
@@ -998,6 +1010,61 @@ input[type=range] { accent-color: var(--accent); }
         </div>
       </div>
     </div>
+    <div id="panel-direct" class="panel">
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">Upload video jadi</div>
+            <div class="card-sub">Video di folder "Video siap upload" (Settings → Galeri Aset) langsung diunggah ke YouTube tanpa render. File dihapus dari server setelah tayang.</div>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="g2">
+            <div class="fg"><label class="fl" for="du-channel">Channel YouTube</label><select id="du-channel" onchange="duLoad()"><option value="">-- Pilih Channel --</option></select></div>
+            <div class="fg"><label class="fl" for="du-playlist">Playlist <small>opsional</small></label><select id="du-playlist"><option value="">-- Tidak masuk playlist --</option></select></div>
+            <div class="fg"><label class="fl" for="du-title-mode">Judul</label>
+              <select id="du-title-mode" onchange="duResetTitles()">
+                <option value="filename">Dari nama file</option>
+                <option value="bank">Acak dari Bank Judul</option>
+              </select>
+            </div>
+            <div class="fg"><label class="fl" for="du-privacy">Visibilitas</label>
+              <select id="du-privacy">
+                <option value="public">Publik (sesuai jadwal)</option>
+                <option value="unlisted">Tidak publik</option>
+                <option value="private">Pribadi</option>
+              </select>
+            </div>
+            <div class="fg"><label class="fl" for="du-start">Mulai tayang (video #1)</label><input type="datetime-local" id="du-start" onchange="duRender()"></div>
+            <div class="fg"><label class="fl" for="du-interval">Jeda antar video</label>
+              <select id="du-interval" onchange="duRender()">
+                <option value="1">1 jam</option><option value="3">3 jam</option><option value="6">6 jam</option>
+                <option value="12">12 jam</option><option value="24" selected>1 hari</option><option value="48">2 hari</option><option value="72">3 hari</option>
+              </select>
+            </div>
+          </div>
+          <div class="fg"><label class="fl" for="du-desc">Deskripsi</label><textarea id="du-desc" rows="4" placeholder="Deskripsi untuk semua video…"></textarea></div>
+          <div class="fg"><label class="fl" for="du-tags">Tag <small>pisahkan koma, maks 400 karakter</small></label><input type="text" id="du-tags" placeholder="lofi, chill, study music"></div>
+          <div class="fl" style="margin-top:4px">Thumbnail otomatis memakai gambar bernama sama di folder Thumbnail (mis. <b>Lofi Hujan.jpg</b> untuk <b>Lofi Hujan.mp4</b>), kalau tidak ada diambil acak.</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">Pilih video</div>
+            <div class="card-sub" id="du-summary">Pilih channel dulu.</div>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-g btn-sm" onclick="duToggleAll()">Pilih semua</button>
+            <a class="btn btn-g btn-sm" href="/settings#gallery" style="text-decoration:none">Upload video ke galeri</a>
+          </div>
+        </div>
+        <div id="du-list"></div>
+      </div>
+      <button class="btn btn-p btn-full" id="du-submit" onclick="duSubmit()">Masukkan ke antrean upload</button>
+    </div>
+
     <div id="panel-settings" class="panel">
       <div class="sh" style="margin-bottom:20px">
         <div><div class="sh-title">Settings</div><div class="sh-sub">API Google, channel & konfigurasi sistem</div></div>
@@ -1232,6 +1299,7 @@ const PAGE_META = {
   dashboard: { t: 'Factory',         s: 'Overview sistem & analytics' },
   tasks:     { t: 'Factory',         s: 'Render visualizer video panjang dan jadwal upload massal ke YouTube.' },
   batch:     { t: 'Factory',         s: 'Render visualizer video panjang dan jadwal upload massal ke YouTube.' },
+  direct:    { t: 'Factory',         s: 'Upload video yang sudah jadi langsung ke YouTube, tanpa render.' },
   
 };
 
@@ -1248,6 +1316,7 @@ function go(id, el) {
   document.getElementById('tb-title').textContent = PAGE_META[id].t;
   document.getElementById('tb-sub').textContent = PAGE_META[id].s;
   if (id === 'dashboard') fetchAnalytics();
+  if (id === 'direct') duInit();
   if (id === 'batch') {
     refreshBatchDropdowns();
     setTimeout(initCanvas, 50);
@@ -3636,6 +3705,147 @@ function importChannels(event) {
     });
     
     event.target.value = ''; // Reset input setelah proses selesai
+}
+
+// ────────────────────────────────────────────────────────
+//  UPLOAD LANGSUNG (VIDEO JADI, TANPA RENDER)
+// ────────────────────────────────────────────────────────
+let duFiles = [];
+let duTitles = {};
+
+function duEsc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+function duCleanTitle(name) {
+  const stem = name.replace(/\.[^.]+$/, '');
+  const t = stem.replace(/^\d+[\.\)\-\s_]+/, '').replace(/\(.*?\)|\[.*?\]/g, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return t || stem;
+}
+
+function duPad(n) { return String(n).padStart(2, '0'); }
+function duFormat(d) { return `${d.getFullYear()}-${duPad(d.getMonth() + 1)}-${duPad(d.getDate())} ${duPad(d.getHours())}:${duPad(d.getMinutes())}`; }
+
+function duInit() {
+  const sel = document.getElementById('du-channel');
+  if (sel.options.length <= 1 && typeof channels !== 'undefined') {
+    sel.innerHTML = '<option value="">-- Pilih Channel --</option>' + channels.map(c => `<option value="${duEsc(c.yt_id)}">${duEsc(c.name)}</option>`).join('');
+  }
+  const start = document.getElementById('du-start');
+  if (!start.value) {
+    const d = new Date(Date.now() + 3600 * 1000);
+    d.setMinutes(0, 0, 0);
+    start.value = `${d.getFullYear()}-${duPad(d.getMonth() + 1)}-${duPad(d.getDate())}T${duPad(d.getHours())}:00`;
+  }
+  if (sel.value) duLoad();
+}
+
+async function duLoad() {
+  const yt_id = document.getElementById('du-channel').value;
+  duFiles = []; duTitles = {};
+  const pl = document.getElementById('du-playlist');
+  pl.innerHTML = '<option value="">-- Tidak masuk playlist --</option>';
+  if (!yt_id) { duRender(); return; }
+  document.getElementById('du-summary').textContent = 'Memuat…';
+  try {
+    const d = await (await fetch('/api/direct_upload/files?yt_id=' + encodeURIComponent(yt_id))).json();
+    duFiles = (d.files || []).map(f => ({ ...f, checked: !f.queued }));
+  } catch (e) {
+    toast('Gagal memuat daftar video', 'error');
+  }
+  duResetTitles();
+  fetch('/api/get_playlists?yt_id=' + encodeURIComponent(yt_id)).then(r => r.json()).then(data => {
+    if (Array.isArray(data)) pl.innerHTML += data.map(p => `<option value="${duEsc(p.id)}">${duEsc(p.title)}</option>`).join('');
+  }).catch(() => {});
+}
+
+function duResetTitles() {
+  const yt_id = document.getElementById('du-channel').value;
+  const mode = document.getElementById('du-title-mode').value;
+  const bank = (typeof titleBankData !== 'undefined' && titleBankData[yt_id]) ? titleBankData[yt_id].slice() : [];
+  if (mode === 'bank' && !bank.length) toast('Bank Judul channel ini kosong, judul diambil dari nama file.', 'warn');
+  for (let i = bank.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [bank[i], bank[j]] = [bank[j], bank[i]]; }
+  duTitles = {};
+  duFiles.forEach((f, i) => { duTitles[f.name] = (mode === 'bank' && bank.length) ? bank[i % bank.length] : duCleanTitle(f.name); });
+  duRender();
+}
+
+function duSchedule() {
+  const startVal = document.getElementById('du-start').value;
+  const hours = parseFloat(document.getElementById('du-interval').value) || 24;
+  const start = startVal ? new Date(startVal) : null;
+  const dates = {};
+  let k = 0;
+  duFiles.forEach(f => {
+    if (f.checked && !f.queued && start) dates[f.name] = duFormat(new Date(start.getTime() + k++ * hours * 3600 * 1000));
+  });
+  return dates;
+}
+
+function duRender() {
+  const list = document.getElementById('du-list');
+  const summary = document.getElementById('du-summary');
+  if (!document.getElementById('du-channel').value) {
+    summary.textContent = 'Pilih channel dulu.';
+    list.innerHTML = '';
+    return;
+  }
+  if (!duFiles.length) {
+    summary.textContent = '0 video';
+    list.innerHTML = '<div class="du-empty">Folder "Video siap upload" channel ini masih kosong. Upload video lewat Settings → Galeri Aset.</div>';
+    return;
+  }
+  const dates = duSchedule();
+  const picked = duFiles.filter(f => f.checked && !f.queued).length;
+  summary.textContent = `${picked} dari ${duFiles.length} video dipilih`;
+  list.innerHTML = duFiles.map((f, i) => `
+    <div class="du-row ${f.queued ? 'off' : ''}">
+      <input type="checkbox" ${f.checked && !f.queued ? 'checked' : ''} ${f.queued ? 'disabled' : ''} onchange="duFiles[${i}].checked=this.checked; duRender()" aria-label="Pilih ${duEsc(f.name)}">
+      <div style="min-width:0">
+        <div class="du-name" title="${duEsc(f.name)}">${duEsc(f.name)}</div>
+        <div class="du-meta">${duEsc(f.size)}${f.queued ? ' · sudah di antrean' : ''}</div>
+      </div>
+      <input type="text" value="${duEsc(duTitles[f.name] || '')}" maxlength="100" ${f.queued ? 'disabled' : ''} oninput="duTitles[duFiles[${i}].name]=this.value" aria-label="Judul ${duEsc(f.name)}">
+      <div class="du-date">${dates[f.name] || ''}</div>
+    </div>`).join('');
+}
+
+function duToggleAll() {
+  const avail = duFiles.filter(f => !f.queued);
+  const all = avail.every(f => f.checked);
+  avail.forEach(f => f.checked = !all);
+  duRender();
+}
+
+async function duSubmit() {
+  const yt_id = document.getElementById('du-channel').value;
+  if (!yt_id) { toast('Pilih channel dulu!', 'warn'); return; }
+  const dates = duSchedule();
+  const chosen = duFiles.filter(f => f.checked && !f.queued);
+  if (!chosen.length) { toast('Pilih minimal 1 video.', 'warn'); return; }
+  if (!document.getElementById('du-start').value) { toast('Tentukan waktu mulai tayang!', 'warn'); return; }
+  const empty = chosen.find(f => !(duTitles[f.name] || '').trim());
+  if (empty) { toast(`Judul untuk ${empty.name} masih kosong.`, 'warn'); return; }
+  const btn = document.getElementById('du-submit');
+  btn.disabled = true;
+  try {
+    const d = await (await fetch('/api/direct_upload', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        yt_id,
+        items: chosen.map(f => ({ file: f.name, title: duTitles[f.name].trim(), publish_date: dates[f.name] })),
+        description: document.getElementById('du-desc').value,
+        tags: document.getElementById('du-tags').value,
+        privacy: document.getElementById('du-privacy').value,
+        playlist_id: document.getElementById('du-playlist').value,
+      })
+    })).json();
+    if (d.status !== 'success') throw new Error(d.message);
+    toast(d.message, 'success');
+    go('tasks');
+  } catch (e) {
+    toast(e.message || 'Gagal memasukkan antrean', 'error');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // Toast lama diarahkan ke toast Studio agar tampilannya seragam

@@ -374,7 +374,9 @@ GALLERY_FOLDER_MAP = {
     'shorts_thumb':  'shorts_thumb',
     'thumbnail':     'thumbnails',
     'thumbnails':    'thumbnails',
-    'base_video':    'base_videos'
+    'base_video':    'base_videos',
+    'ready_video':   'ready_videos',
+    'ready_videos':  'ready_videos'
 }
 
 def resolve_folder(g_type: str) -> str:
@@ -745,14 +747,16 @@ def get_mixed_audios(yt_id, count_non, count_cid):
     random.shuffle(combined) # Acak ulang gabungannya (Final Shuffle)
     return combined
 
-def get_and_consume_thumbnail(yt_id):
+def get_and_consume_thumbnail(yt_id, preferred_stem=None):
     """🔥 UPDATE: pilih thumbnail acak (bukan selalu file pertama),
-    validasi ukuran minimal 1280x720 agar YouTube tidak menolak diam-diam."""
+    validasi ukuran minimal 1280x720 agar YouTube tidak menolak diam-diam.
+    preferred_stem: bila ada gambar bernama sama (mis. 'Lofi Hujan.jpg' untuk 'Lofi Hujan.mp4'), pakai itu."""
     path = get_channel_folder(yt_id, "thumbnails")
-    files = [f for f in os.listdir(path) if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
+    files = [f for f in os.listdir(path) if f.lower().endswith(('.jpg', '.png', '.jpeg')) and not f.endswith('_yt_compressed.jpg')]
     if not files: return None
+    matched = [f for f in files if preferred_stem and os.path.splitext(f)[0].lower() == preferred_stem.lower()]
     # Pilih acak dari folder (lebih bervariasi tiap video, file tidak dihapus/dipakai ulang)
-    chosen = random.choice(files)
+    chosen = matched[0] if matched else random.choice(files)
     thumb_path = os.path.join(path, chosen)
     # 🔥 BARU: validasi ukuran — YouTube mewajibkan >= 1280x720 DAN <= 2MB (2097152 byte)
     try:
@@ -1734,6 +1738,7 @@ def background_worker():
             if saved_upload.get('video_id'):
                 video_id = saved_upload['video_id']
                 if lease_root: asset_pool.commit(lease_root, lease_owner)
+                remove_ready_video(yt_id, task)
                 move_to_history(task_id, f"Tayang! ✅ <a href='https://youtu.be/{video_id}' target='_blank'>[Lihat]</a>")
                 render_queue.task_done()
                 continue
@@ -1893,11 +1898,20 @@ def background_worker():
                         d['updated_at'] = time.time()  # 🔥 BARU: timestamp untuk watchdog stuck
             save_tasks_db()
 
-            final_video = os.path.join(BASE_DIR, f"static/final_{task_id}.mp4")
+            ready_file = task.get('ready_file') if task.get('source_mode') == 'ready_video' else None
+            if ready_file:
+                # Video sudah jadi: langsung upload tanpa render
+                if not channel_data:
+                    raise Exception("Channel tujuan tidak ditemukan.")
+                final_video = os.path.join(get_channel_folder(yt_id, 'ready_videos'), os.path.basename(ready_file))
+                if not os.path.isfile(final_video):
+                    raise Exception(f"File video siap upload tidak ditemukan: {os.path.basename(ready_file)}")
+            else:
+                final_video = os.path.join(BASE_DIR, f"static/final_{task_id}.mp4")
             upload_record = read_json(state_path(task_id, yt_id), {})
-            if not os.path.isfile(final_video) and upload_record.get('uri') and not upload_record.get('video_id'):
+            if not ready_file and not os.path.isfile(final_video) and upload_record.get('uri') and not upload_record.get('video_id'):
                 raise RuntimeError('File sesi upload sebelumnya tidak ada; perlu rekonsiliasi sebelum upload ulang.')
-            if not (os.path.isfile(final_video) and upload_record):
+            if not ready_file and not (os.path.isfile(final_video) and upload_record):
                 # ============== AWAL BLOK SUMBER KONTEN (UPDATE) ==============
                 source_mode = task.get('source_mode', 'mix')
                 base_audio = os.path.join(BASE_UPLOAD, f"temp_a_{task_id}.mp3")
@@ -2166,7 +2180,7 @@ def background_worker():
                         
                         video_id = resp.get('id')
                         
-                        thumb_path = get_and_consume_thumbnail(yt_id)
+                        thumb_path = get_and_consume_thumbnail(yt_id, os.path.splitext(os.path.basename(ready_file))[0] if ready_file else None)
                         if thumb_path and os.path.exists(thumb_path):
                             try:
                                 with db_lock:
@@ -2197,6 +2211,7 @@ def background_worker():
                                 youtube.playlistItems().insert(part='snippet', body={'snippet': {'playlistId': task['playlist_id'], 'resourceId': {'kind': 'youtube#video', 'videoId': video_id}}}).execute()
                         except: pass
                         if lease_root: asset_pool.commit(lease_root, lease_owner)
+                        remove_ready_video(yt_id, task)
                         move_to_history(task_id, f"Tayang! ✅ <a href='https://youtu.be/{video_id}' target='_blank'>[Lihat]</a>")
                         notify_event("✅", task['title'], f"Tayang di YouTube {ch_name}\nJadwal tayang: {task['publish_date']}")
                         upload_berhasil = True
@@ -2544,7 +2559,8 @@ def get_asset_counts():
         "shorts_bg": count_files("shorts_bg"),
         "shorts_thumb": count_files("shorts_thumb"),
         "thumbnails": count_files("thumbnails"),
-        "base_videos": count_files("base_videos")
+        "base_videos": count_files("base_videos"),
+        "ready_videos": count_files("ready_videos")
     })
 
 @app.route('/api/get_gallery', methods=['GET'])
@@ -2574,7 +2590,8 @@ def get_gallery():
         "shorts_bg":     get_files_data("shorts_bg"),
         "shorts_thumb":  get_files_data("shorts_thumb"),
         "thumbnails":    get_files_data("thumbnails"),
-        "base_video":    get_files_data("base_videos")
+        "base_video":    get_files_data("base_videos"),
+        "ready_video":   get_files_data("ready_videos")
     })
 
 @app.route('/api/upload_gallery', methods=['POST'])
@@ -2956,6 +2973,88 @@ def poll_device_token():
     save_channels(database_channel)
     return jsonify({"status": "success"})
 
+# --- UPLOAD VIDEO JADI (TANPA RENDER) ---
+READY_EXTS = ('.mp4', '.mov', '.mkv', '.webm', '.avi', '.m4v')
+
+def remove_ready_video(yt_id, task):
+    """Hapus file video siap upload setelah berhasil tayang agar tidak terupload dua kali."""
+    if task.get('source_mode') != 'ready_video' or not task.get('ready_file'):
+        return
+    try:
+        os.remove(os.path.join(get_channel_folder(yt_id, 'ready_videos'), os.path.basename(task['ready_file'])))
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print(f"⚠️ Gagal menghapus video siap upload {task.get('ready_file')}: {e}")
+
+def _queued_ready_files(yt_id):
+    with db_lock:
+        return {(t.get('blueprint') or {}).get('ready_file') for t in active_tasks
+                if t.get('yt_id') == yt_id and not task_terminal(t)
+                and (t.get('blueprint') or {}).get('source_mode') == 'ready_video'}
+
+@app.route('/api/direct_upload/files')
+def direct_upload_files():
+    yt_id = request.args.get('yt_id', '')
+    try:
+        folder = get_channel_folder(yt_id, 'ready_videos')
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 404
+    queued = _queued_ready_files(yt_id)
+    files = []
+    for name in sorted(os.listdir(folder)):
+        fp = os.path.join(folder, name)
+        if name.startswith('.') or not os.path.isfile(fp) or not name.lower().endswith(READY_EXTS):
+            continue
+        files.append({"name": name, "size": f"{round(os.path.getsize(fp) / (1024 * 1024), 1)} MB", "queued": name in queued})
+    return jsonify({"status": "success", "files": files})
+
+@app.route('/api/direct_upload', methods=['POST'])
+def direct_upload_create():
+    data = request.get_json(silent=True) or {}
+    yt_id = data.get('yt_id', '')
+    items = data.get('items') or []
+    channel = next((c for c in database_channel if c.get('yt_id') == yt_id), None)
+    if not channel:
+        return jsonify({"status": "error", "message": "Channel tidak ditemukan."}), 404
+    if not items:
+        return jsonify({"status": "error", "message": "Pilih minimal 1 video."}), 400
+    folder = get_channel_folder(yt_id, 'ready_videos')
+    queued = _queued_ready_files(yt_id)
+    names = [os.path.basename(str(it.get('file') or '')) for it in items]
+    if len(set(names)) != len(names):
+        return jsonify({"status": "error", "message": "Ada video yang dipilih dua kali."}), 400
+    for name in names:
+        if not name or not os.path.isfile(os.path.join(folder, name)):
+            return jsonify({"status": "error", "message": f"File tidak ditemukan: {name}"}), 400
+        if name in queued:
+            return jsonify({"status": "error", "message": f"{name} sudah ada di antrean."}), 409
+    for it in items:
+        try:
+            datetime.strptime(str(it.get('publish_date', '')), "%Y-%m-%d %H:%M")
+        except ValueError:
+            return jsonify({"status": "error", "message": f"Format jadwal salah untuk {it.get('file')}."}), 400
+
+    for it, name in zip(items, names):
+        t_id = secrets.randbits(52)
+        title = str(it.get('title') or '').strip() or os.path.splitext(name)[0]
+        blueprint = {
+            "id": t_id, "yt_id": yt_id, "title": title[:100],
+            "publish_date": it['publish_date'],
+            "description": str(it.get('description') or data.get('description') or ''),
+            "tags": data.get('tags', ''), "privacy": data.get('privacy', 'public'),
+            "playlist_id": data.get('playlist_id', ''),
+            "source_mode": 'ready_video', "ready_file": name,
+        }
+        with db_lock:
+            active_tasks.append({
+                "id": t_id, "yt_id": yt_id, "title": blueprint['title'], "time": blueprint['publish_date'],
+                "status": "Menunggu Giliran (Queue) ⏳", "type": "⬆️ Upload langsung", "blueprint": blueprint,
+            })
+        queue_put(blueprint)
+    save_tasks_db()
+    return jsonify({"status": "success", "message": f"{len(items)} video masuk antrean upload."})
+
 # --- MODE KONTEN & STOK FOOTAGE ---
 def _factory_need(bp):
     """(folder, jumlah footage) yang dibutuhkan satu task Factory."""
@@ -2980,7 +3079,7 @@ def factory_stock_error(yt_id, data, count):
     with db_lock:
         for t in active_tasks:
             bp = t.get('blueprint') or {}
-            if t.get('yt_id') != yt_id or task_terminal(t) or bp.get('is_live_base') or t.get('is_live_base'):
+            if t.get('yt_id') != yt_id or task_terminal(t) or bp.get('is_live_base') or t.get('is_live_base') or bp.get('source_mode') == 'ready_video':
                 continue
             if asset_pool.has_lease(root, f"factory:{t['id']}"):
                 continue  # footage-nya sudah dipesan, sudah tidak dihitung di stok

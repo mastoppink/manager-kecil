@@ -9,6 +9,7 @@ Tampilannya mengikuti gaya YouTube Studio dan bisa dibuka dari browser di laptop
 | Modul | Fungsi |
 |---|---|
 | **Factory** | Render video visualizer panjang (audio + background + efek) secara batch, lalu upload terjadwal ke YouTube. |
+| **Upload langsung** | Upload video yang sudah jadi (dari folder *Video siap upload* di Galeri Aset) ke YouTube tanpa render: judul dari nama file atau Bank Judul, jadwal berselang, playlist, dan thumbnail bernama sama otomatis. File dihapus dari server setelah tayang. |
 | **Shorts** | Produksi video vertikal 9:16 dan jadwal upload ke YouTube Shorts dan Facebook Reels, dengan pratinjau efek secara langsung. |
 | **Clipper** | Ambil momen terbaik dari video YouTube, crop 9:16, beri subtitle otomatis (Groq Whisper atau Gemini), lalu jadwalkan upload. |
 | **Live** | Siaran langsung YouTube multi-channel. Base video dirender di antrean prioritas, dan modul render lain dijeda selama siaran. |
