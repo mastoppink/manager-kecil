@@ -8,7 +8,7 @@ import secrets
 import uuid
 from core.job_state import channel_id as task_channel_id, terminal as task_terminal
 from core.json_store import read_json, write_json, update_json
-from core import channel_auth, updater
+from core import channel_auth, updater, asset_pool
 from core.media import validate_video
 from core.upload_state import DurableUpload, has_pending_upload, state_path
 from flask import Flask, render_template, request, jsonify, redirect, url_for, send_from_directory, session
@@ -511,6 +511,16 @@ task_data = load_tasks_db()
 active_tasks = task_data.get("active", [])
 history_tasks = task_data.get("history", [])
 database_channel = load_channels()
+
+def _keep_asset_lease(chan_dir, owner):
+    """Setelah restart, footage milik task Factory yang sesi upload-nya masih bisa dilanjutkan tetap dipesan."""
+    if not owner.startswith('factory:'):
+        return False
+    tid, yt = owner.split(':', 1)[1], os.path.basename(chan_dir)
+    task = next((t for t in active_tasks if str(t.get('id')) == tid), None)
+    return bool(task) and has_pending_upload(task['id'], yt)
+
+asset_pool.set_keep_predicate(_keep_asset_lease)
 try:
     if channel_auth.migrate_channels(database_channel, SECRETS_DIR, CLIENT_SECRETS_FILE):
         save_channels(database_channel)
@@ -705,18 +715,18 @@ def get_channel_folder(yt_id, sub):
     os.makedirs(path, exist_ok=True)
     return path
 
-def get_multi_backgrounds(yt_id, count=1):
-    path = get_channel_folder(yt_id, "backgrounds")
-    files = [os.path.join(path, f) for f in os.listdir(path) if f.lower().endswith(('.mp4', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.mov'))]
-    if not files: return []
-    random.shuffle(files)
-    
-    selected = []
-    while len(selected) < count and files:
-        for f in files:
-            selected.append(f)
-            if len(selected) == count: break
-    return selected
+FACTORY_BG_EXTS = ('.mp4', '.jpg', '.jpeg', '.png', '.gif', '.webp', '.mov')
+
+def get_multi_backgrounds(yt_id, count=1, mode=asset_pool.MODE_CID, owner=None):
+    """Background Factory. Mode CID: kocok kartu (boleh berulang). Mode AdSense: sekali pakai."""
+    get_channel_folder(yt_id, "backgrounds")
+    return asset_pool.pick(channel_gallery_path(yt_id), 'backgrounds', count, FACTORY_BG_EXTS, mode, owner)
+
+def get_mode_audios(yt_id, total, mode):
+    """Audio mengikuti mode channel (AdSense: non-CID, Content ID: CID), diacak dengan kocok kartu."""
+    folder = asset_pool.audio_folder(mode)
+    get_channel_folder(yt_id, folder)
+    return asset_pool.pick_audio(channel_gallery_path(yt_id), folder, max(1, int(total)))
 
 def get_mixed_audios(yt_id, count_non, count_cid):
     p_non = get_channel_folder(yt_id, "audio_non_cid")
@@ -1712,11 +1722,18 @@ def background_worker():
         channel_data = next((c for c in database_channel if c['yt_id'] == yt_id), None)
         if channel_data:
             ch_name = channel_data.get('name', ch_name)
+        content_mode = asset_pool.channel_mode(channel_data)
+        lease_owner = f"factory:{task_id}"
+        try:
+            lease_root = channel_gallery_path(yt_id)
+        except ValueError:
+            lease_root = None
         
         if not task.get('is_live_base'):
             saved_upload = read_json(state_path(task_id, yt_id), {})
             if saved_upload.get('video_id'):
                 video_id = saved_upload['video_id']
+                if lease_root: asset_pool.commit(lease_root, lease_owner)
                 move_to_history(task_id, f"Tayang! ✅ <a href='https://youtu.be/{video_id}' target='_blank'>[Lihat]</a>")
                 render_queue.task_done()
                 continue
@@ -1893,18 +1910,13 @@ def background_worker():
                             if d['id'] == task_id: d['status'] = "Mencari & Mengekstrak Audio dari Video... ⚙️"
                     save_tasks_db()
 
-                    # Ambil dari folder khusus base_videos yang baru
-                    base_videos_dir = get_channel_folder(yt_id, "base_videos")
-                    video_paths = [os.path.join(base_videos_dir, f) for f in os.listdir(base_videos_dir) if f.lower().endswith(('.mp4', '.mov', '.webm', '.mkv'))]
-                    if not video_paths: raise Exception("Gallery Video+Audio kosong! Upload MP4 sumber ke tab tersebut.")
-                
-                    # 🔥 BARU: Jumlah video acak per final video (default 1 = perilaku lama)
-                    vid_req = int(task.get('vid_per_video', 1))
-                    vid_req = max(1, min(vid_req, len(video_paths)))
-                
-                    # 🔥 BARU: Pilih N video acak BEDA untuk task ini (diacak ulang tiap render).
-                    # Jadi kalau Final Video 30, masing-masing mendapat 5 video acak berbeda.
-                    selected_videos = random.sample(video_paths, vid_req)
+                    # Ambil dari folder khusus base_videos.
+                    # Mode AdSense: sekali pakai. Mode Content ID: kocok kartu (unik dalam satu video).
+                    get_channel_folder(yt_id, "base_videos")
+                    vid_req = max(1, int(task.get('vid_per_video', 1)))
+                    selected_videos = asset_pool.pick(lease_root, 'base_videos', vid_req, asset_pool.VIDEO_EXTS,
+                                                      content_mode, lease_owner, unique=True)
+                    if not selected_videos: raise Exception("Gallery Video+Audio kosong! Upload MP4 sumber ke tab tersebut.")
                     source_video = selected_videos[0]
                     bg_paths = [source_video] # Video pertama sebagai background utama
                 
@@ -1957,10 +1969,12 @@ def background_worker():
 
                 else:
                     # --- JALUR LAMA: MODE KLASIK (MIX MP3) ---
-                    mp3_non = int(task.get('mp3_non_cid_count', 5))
-                    mp3_cid = int(task.get('mp3_cid_count', 0))
-                    selected_audios = get_mixed_audios(yt_id, mp3_non, mp3_cid)
-                    if not selected_audios: raise Exception("Gallery Audio (Non-CID / CID) Kosong! Upload minimal 1 file.")
+                    # Audio mengikuti mode channel: AdSense -> non-CID, Content ID -> CID
+                    mp3_total = int(task.get('mp3_non_cid_count', 5)) + int(task.get('mp3_cid_count', 0))
+                    selected_audios = get_mode_audios(yt_id, mp3_total, content_mode)
+                    if not selected_audios:
+                        raise Exception(f"Gallery Audio ({asset_pool.folder_label(asset_pool.audio_folder(content_mode))}) kosong! "
+                                        f"Mode channel ini memakai folder tersebut, upload minimal 1 file.")
 
                     current_sec = 0.0
                     c_txt = os.path.join(BASE_UPLOAD, f"temp_c_{task_id}.txt")
@@ -1988,7 +2002,7 @@ def background_worker():
                     base_duration_sec = float(probe.stdout.strip())
                 
                     bg_count = int(task.get('bg_count', 1))
-                    bg_paths = get_multi_backgrounds(yt_id, count=bg_count)
+                    bg_paths = get_multi_backgrounds(yt_id, count=bg_count, mode=content_mode, owner=lease_owner)
                     if not bg_paths: raise Exception("Gallery Background Kosong!")
 
                 if base_duration_sec <= 0: raise Exception("Durasi sumber media tidak valid!")
@@ -2182,6 +2196,7 @@ def background_worker():
                             if task.get('playlist_id'):
                                 youtube.playlistItems().insert(part='snippet', body={'snippet': {'playlistId': task['playlist_id'], 'resourceId': {'kind': 'youtube#video', 'videoId': video_id}}}).execute()
                         except: pass
+                        if lease_root: asset_pool.commit(lease_root, lease_owner)
                         move_to_history(task_id, f"Tayang! ✅ <a href='https://youtu.be/{video_id}' target='_blank'>[Lihat]</a>")
                         notify_event("✅", task['title'], f"Tayang di YouTube {ch_name}\nJadwal tayang: {task['publish_date']}")
                         upload_berhasil = True
@@ -2232,11 +2247,16 @@ def background_worker():
                         except Exception: pass
                     raise Exception(pesan_error)
             else:
+                if lease_root: asset_pool.commit(lease_root, lease_owner)
                 move_to_history(task_id, f"Render Selesai ✅ <a href='/static/final_{task_id}.mp4' target='_blank'>[Download]</a>")
                 notify_event("✅", task['title'], f"Render selesai, di-upload ke YouTube {ch_name}")
         
         except Exception as e:
             err_msg = str(e)
+            # Footage kembali ke stok, kecuali video ini masih punya sesi upload yang akan dilanjutkan
+            if lease_root and not has_pending_upload(task_id, yt_id):
+                try: asset_pool.release(lease_root, lease_owner)
+                except Exception as rel_err: print(f"⚠️ Gagal mengembalikan footage task {task_id}: {rel_err}")
             if "Limit" in err_msg or "Cooldown" in err_msg or "Habis" in err_msg:
                 with db_lock:
                     for d in active_tasks:
@@ -2372,7 +2392,7 @@ def clear_history():
 
 @app.route('/api/get_channels')
 def get_channels():
-    safe_c = [{"id": c["id"], "name": c["name"], "yt_id": c["yt_id"], "thumbnail": c["thumbnail"], "status": c["status"], "title_bank": c.get("title_bank", []), "needs_relink": channel_auth.needs_relink(c), **_channel_secret_info(c)} for c in database_channel]
+    safe_c = [{"id": c["id"], "name": c["name"], "yt_id": c["yt_id"], "thumbnail": c["thumbnail"], "status": c["status"], "title_bank": c.get("title_bank", []), "needs_relink": channel_auth.needs_relink(c), "content_mode": asset_pool.channel_mode(c), **_channel_secret_info(c)} for c in database_channel]
     return jsonify(safe_c)
 
 from flask import send_file # Pastikan send_file di-import di baris paling atas jika belum ada
@@ -2889,6 +2909,89 @@ def poll_device_token():
     save_channels(database_channel)
     return jsonify({"status": "success"})
 
+# --- MODE KONTEN & STOK FOOTAGE ---
+def _factory_need(bp):
+    """(folder, jumlah footage) yang dibutuhkan satu task Factory."""
+    if bp.get('source_mode') == 'single_video':
+        return 'base_videos', max(1, int(bp.get('vid_per_video', 1) or 1))
+    return 'backgrounds', max(1, int(bp.get('bg_count', 1) or 1))
+
+def factory_stock_error(yt_id, data, count):
+    """Pesan error bila stok footage channel AdSense tidak cukup untuk batch ini (+ antrean yang belum jalan)."""
+    channel = next((c for c in database_channel if c.get('yt_id') == yt_id), None)
+    if not channel:
+        return "Channel tidak ditemukan."
+    mode = asset_pool.channel_mode(channel)
+    root = channel_gallery_path(yt_id)
+    a_folder = asset_pool.audio_folder(mode)
+    if data.get('source_mode') != 'single_video' and not asset_pool.stock_info(root, a_folder, asset_pool.AUDIO_EXTS)['available']:
+        return f"Folder {asset_pool.folder_label(a_folder)} kosong. Channel ini memakai mode {'AdSense' if mode == asset_pool.MODE_ADSENSE else 'Content ID'}, jadi audionya diambil dari folder tersebut."
+    if mode != asset_pool.MODE_ADSENSE:
+        return None
+    folder, per_video = _factory_need(data)
+    pending = 0
+    with db_lock:
+        for t in active_tasks:
+            bp = t.get('blueprint') or {}
+            if t.get('yt_id') != yt_id or task_terminal(t) or bp.get('is_live_base') or t.get('is_live_base'):
+                continue
+            if asset_pool.has_lease(root, f"factory:{t['id']}"):
+                continue  # footage-nya sudah dipesan, sudah tidak dihitung di stok
+            f, n = _factory_need(bp)
+            if f == folder:
+                pending += n
+    available = asset_pool.stock_info(root, folder, FACTORY_BG_EXTS if folder == 'backgrounds' else asset_pool.VIDEO_EXTS)['available']
+    need = count * per_video
+    if pending + need > available:
+        return (f"Stok {asset_pool.folder_label(folder)} tidak cukup (mode AdSense, sekali pakai): batch ini butuh {need}, "
+                f"antrean lain butuh {pending}, stok tersisa {available}.")
+    return None
+
+@app.route('/api/channel_mode', methods=['POST'])
+def set_channel_mode():
+    global database_channel
+    data = request.get_json(silent=True) or {}
+    yt_id, mode = data.get('yt_id'), data.get('mode')
+    if mode not in asset_pool.MODES:
+        return jsonify({"status": "error", "message": "Mode tidak dikenal."}), 400
+    with db_lock:
+        channel = next((c for c in database_channel if c.get('yt_id') == yt_id), None)
+        if not channel:
+            return jsonify({"status": "error", "message": "Channel tidak ditemukan."}), 404
+        channel['content_mode'] = mode
+        save_channels(database_channel)
+    label = 'AdSense — footage sekali pakai, audio non-CID' if mode == asset_pool.MODE_ADSENSE else 'Content ID — footage boleh berulang, audio CID'
+    return jsonify({"status": "success", "message": f"Mode {channel['name']}: {label}."})
+
+@app.route('/api/asset_pool')
+def asset_pool_info():
+    yt_id = request.args.get('yt_id', '')
+    try:
+        root = channel_gallery_path(yt_id)
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 404
+    channel = next((c for c in database_channel if c.get('yt_id') == yt_id), None)
+    mode = asset_pool.channel_mode(channel)
+    exts = {'backgrounds': FACTORY_BG_EXTS, 'shorts_bg': asset_pool.BG_EXTS, 'base_videos': asset_pool.VIDEO_EXTS}
+    return jsonify({
+        "status": "success", "mode": mode, "audio_folder": asset_pool.audio_folder(mode),
+        "folders": {f: asset_pool.stock_info(root, f, exts[f]) for f in asset_pool.CONSUMABLE},
+    })
+
+@app.route('/api/asset_pool/<action>', methods=['POST'])
+def asset_pool_action(action):
+    data = request.get_json(silent=True) or {}
+    yt_id, folder, name = data.get('yt_id', ''), data.get('folder', ''), data.get('name') or None
+    fn = {'restore': asset_pool.restore_used, 'delete_used': asset_pool.delete_used}.get(action)
+    if not fn:
+        return jsonify({"status": "error", "message": "Aksi tidak dikenal."}), 404
+    try:
+        n = fn(channel_gallery_path(yt_id), folder, name)
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+    verb = 'dikembalikan ke stok' if action == 'restore' else 'dihapus permanen'
+    return jsonify({"status": "success", "message": f"{n} file {verb}."})
+
 # --- BATCH CREATOR ---
 @app.route('/api/batch_create', methods=['POST'])
 def batch_create():
@@ -2909,6 +3012,10 @@ def batch_create():
         
     interval_days = float(data.get('interval_days', 1))
     publish_dates = data.get('generated_publish_dates', [])
+
+    stock_error = factory_stock_error(yt_id, data, int(count))
+    if stock_error:
+        return jsonify({"status": "error", "message": stock_error}), 400
 
     if publish_dates and len(publish_dates) > 0:
         last_date_str = publish_dates[-1]

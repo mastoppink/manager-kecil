@@ -778,6 +778,7 @@ input[type=range] { accent-color: var(--accent); }
 
             <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px">
               <div style="font-family:var(--font-m);font-size:10px;color:var(--muted);margin-bottom:6px;letter-spacing:.1em">STATUS ASET GALLERY</div>
+              <div id="bc-mode-status" style="font-size:13px;color:var(--text);margin-bottom:8px;display:none"></div>
               <div id="bc-audio-non-status" style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px;">Audio (Non-CID): Pilih channel dulu</div>
 <div id="bc-audio-cid-status" style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px;">Audio (CID): Pilih channel dulu</div>
               <div id="bc-bg-status" style="font-size:11px;font-weight:700;color:var(--text2);margin-bottom:4px;">BG Biasa: Pilih channel dulu</div>
@@ -1959,6 +1960,31 @@ function updateCenterLogo() {
     centerLogo.src = '/static/logo.png'; 
 }
 
+// Mode konten channel: AdSense (footage sekali pakai, audio non-CID) / Content ID (footage berulang, audio CID)
+function applyBcMode(yt_id) {
+  const ch = (typeof channels !== 'undefined' ? channels : []).find(c => c.yt_id === yt_id);
+  const adsense = !!ch && ch.content_mode === 'adsense';
+  const nonIn = document.getElementById('bc-mp3-non-cid');
+  const cidIn = document.getElementById('bc-mp3-cid');
+  const nonWrap = nonIn.closest('.fg'), cidWrap = cidIn.closest('.fg');
+  const keep = (parseInt(nonIn.value) || 0) + (parseInt(cidIn.value) || 0) || 5;
+  if (adsense) { nonIn.value = keep; cidIn.value = 0; } else { cidIn.value = keep; nonIn.value = 0; }
+  nonWrap.style.display = adsense ? '' : 'none';
+  cidWrap.style.display = adsense ? 'none' : '';
+
+  const box = document.getElementById('bc-mode-status');
+  box.style.display = 'block';
+  box.innerHTML = adsense
+    ? '<b>Mode AdSense</b> · footage sekali pakai · audio dari folder non-CID'
+    : '<b>Mode Content ID</b> · footage boleh berulang · audio dari folder CID';
+  if (!adsense) return;
+  fetch(`/api/asset_pool?yt_id=${encodeURIComponent(yt_id)}`).then(r => r.json()).then(d => {
+    if (document.getElementById('bc-channel').value !== yt_id || !d.folders) return;
+    const bg = d.folders.backgrounds, bv = d.folders.base_videos;
+    box.innerHTML += `<div style="font-size:12px;color:var(--text2);margin-top:4px">Stok tersisa: ${bg.available} background, ${bv.available} video sumber (${bg.used + bv.used} sudah terpakai)</div>`;
+  }).catch(() => {});
+}
+
 function onBcChannelChange() {
   const yt_id = document.getElementById('bc-channel').value; 
   
@@ -2003,6 +2029,7 @@ function onBcChannelChange() {
     setStatus('bc-base-status', vCount, 'Video+Audio'); 
     setStatus('bc-thumb-status', thCount, 'Thumbnails'); 
     setStatus('bc-title-status', tCount, 'Judul di bank'); 
+    applyBcMode(yt_id);
     if (typeof updatePreviewBackground === 'function') updatePreviewBackground(yt_id);
   }).catch(() => {}); 
   

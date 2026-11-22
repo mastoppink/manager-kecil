@@ -195,7 +195,7 @@ class AppTests(unittest.TestCase):
         self.q.put((1,0,{'id':1,'yt_id':'TARGET','title':'Test'}))
         history=Mock()
         with patch.object(self.app,'acquire_resource'), patch.object(self.app,'release_resource'), \
-             patch.object(self.app,'get_mixed_audios',return_value=[]), \
+             patch.object(self.app,'get_mode_audios',return_value=[]), \
              patch.object(self.app,'move_to_history',history), patch.object(self.app,'notify_event'), \
              patch.object(self.app.time,'sleep',side_effect=EndLoop):
             with self.assertRaises(EndLoop): self.app.background_worker()
@@ -225,6 +225,7 @@ class IntegrationTests(unittest.TestCase):
                        database_channel=[{'yt_id':'ch'}]).start()
         patch.object(self.app, 'save_tasks_db').start()
         patch.object(self.app, 'save_channels').start()
+        patch.object(self.app, 'factory_stock_error', return_value=None).start()  # test ini fokus ke ID task
         for _ in range(2):
             with self.app.app.test_request_context('/api/batch_create', method='POST', json={
                 'yt_id':'ch','count':3,'start_date':'2026-12-01T12:00',

@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from core.job_state import terminal
 from flask import Blueprint, request, jsonify, Response, send_from_directory
 
-from .queue_worker import read_db, write_db, update_db, OUTPUT_DIR
+from .queue_worker import read_db, write_db, update_db, OUTPUT_DIR, shorts_stock_error
 
 try:
     from .queue_worker import _pick_random_asset
@@ -97,6 +97,10 @@ def start_batch():
         return jsonify({'success': False, 'error': {'message': 'Platform tidak didukung.'}}), 400
     if not platforms:
         return jsonify({"success": False, "error": {"message": "Pilih minimal 1 platform upload"}}), 400
+    if not bg_path:
+        stock_error = shorts_stock_error(channel_id, bg_source, batch_count)
+        if stock_error:
+            return jsonify({"success": False, "error": {"message": stock_error}}), 400
 
     ch_name, title_bank = _get_channel_info_and_titles(channel_id)
 

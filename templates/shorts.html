@@ -75,6 +75,7 @@
                 <option value="cid">Acak dari audio CID</option>
                 <option value="mix">Campuran non-CID &amp; CID</option>
               </select>
+              <span class="st-help" id="bc-mode-hint">Otomatis mengikuti mode channel.</span>
             </div>
             <div class="st-field">
               <label class="st-label" for="bc-count">Jumlah Shorts</label>
@@ -476,6 +477,7 @@ async function onChannelChange() {
     const thSht = (galleryData.shorts_thumb || []).length;
 
     document.getElementById('asset-badge').textContent = `🎵 ${nonCid + cid} Audio · 📐 ${bgSht} BG Shorts · 📱 ${thSht} Thumb Shorts`;
+    applyShortsMode(ch, yt_id);
 
     const selAudio = document.getElementById('preview-audio-select');
     let opts = '<option value="">-- Pilih lagu untuk Live Preview --</option>';
@@ -490,6 +492,24 @@ async function onChannelChange() {
     shufflePreviewBg();
     updateSchedulePreview();
   } catch (e) {}
+}
+
+// Mode konten channel menentukan sumber audio & aturan footage
+function applyShortsMode(ch, yt_id) {
+  const adsense = !!ch && ch.content_mode === 'adsense';
+  const sel = document.getElementById('bc-audio-source');
+  sel.value = adsense ? 'non_cid' : 'cid';
+  sel.disabled = true;
+  const hint = document.getElementById('bc-mode-hint');
+  hint.textContent = adsense
+    ? 'Mode AdSense: audio non-CID, background sekali pakai.'
+    : 'Mode Content ID: audio CID, background boleh berulang.';
+  if (!adsense) return;
+  fetch(`/api/asset_pool?yt_id=${encodeURIComponent(yt_id)}`).then(r => r.json()).then(d => {
+    if (document.getElementById('bc-channel').value !== yt_id || !d.folders) return;
+    const f = d.folders.shorts_bg;
+    hint.textContent += ` Stok BG Shorts tersisa ${f.available} (${f.used} terpakai).`;
+  }).catch(() => {});
 }
 
 function shufflePreviewBg() {

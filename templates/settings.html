@@ -17,6 +17,13 @@
   .gal-progress .bar { position: absolute; inset: 0 auto 0 0; width: 0; background: rgba(62,166,255,.25); transition: width .2s; }
   .gal-progress span { position: relative; }
   .titles-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  .mode-sel { width: auto; padding: 6px 28px 6px 10px; font-size: 13px; }
+  .used-box { border-top: 1px solid var(--border); }
+  .used-box summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px 8px 20px; cursor: pointer; color: var(--text-2); font-size: 13px; list-style: none; }
+  .used-box summary::-webkit-details-marker { display: none; }
+  .used-box summary::before { content: '▸'; margin-right: 8px; }
+  .used-box[open] summary::before { content: '▾'; }
+  .used-box summary > span:first-child { flex: 1; }
   .fb-mark { width: 40px; height: 40px; border-radius: 50%; background: #1877f2; color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 18px; flex-shrink: 0; }
   @media (max-width: 900px) { .titles-layout { grid-template-columns: 1fr; } }
 </style>
@@ -78,8 +85,8 @@
 
     <div class="st-card" style="overflow-x:auto">
       <table class="st-table">
-        <thead><tr><th>Channel</th><th class="hide-sm">Client ID</th><th class="hide-sm">Status</th><th class="col-actions" style="text-align:right">Aksi</th></tr></thead>
-        <tbody id="yt-channel-list"><tr><td colspan="4" class="st-empty">Memuat channel…</td></tr></tbody>
+        <thead><tr><th>Channel</th><th>Mode konten</th><th class="hide-sm">Client ID</th><th class="hide-sm">Status</th><th class="col-actions" style="text-align:right">Aksi</th></tr></thead>
+        <tbody id="yt-channel-list"><tr><td colspan="5" class="st-empty">Memuat channel…</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -144,13 +151,14 @@
     <div id="gallery-empty-hint" class="st-card st-empty"><b>Pilih channel</b>Aset (audio, background, thumbnail, video) disimpan per channel.</div>
 
     <div id="gallery-content" class="st-stack hidden">
+      <div id="gallery-mode" class="st-callout"></div>
       <div class="st-stats">
         <div class="st-stat"><div class="st-stat-label">Audio non-CID</div><div class="st-stat-value" id="count-audio-non">–</div></div>
         <div class="st-stat"><div class="st-stat-label">Audio CID</div><div class="st-stat-value" id="count-audio-cid">–</div></div>
-        <div class="st-stat"><div class="st-stat-label">Background 16:9</div><div class="st-stat-value" id="count-background">–</div></div>
-        <div class="st-stat"><div class="st-stat-label">Background 9:16</div><div class="st-stat-value" id="count-shorts_bg">–</div></div>
+        <div class="st-stat"><div class="st-stat-label">Background 16:9</div><div class="st-stat-value" id="count-background">–</div><div class="st-help" id="count-background-sub"></div></div>
+        <div class="st-stat"><div class="st-stat-label">Background 9:16</div><div class="st-stat-value" id="count-shorts_bg">–</div><div class="st-help" id="count-shorts_bg-sub"></div></div>
         <div class="st-stat"><div class="st-stat-label">Thumbnail</div><div class="st-stat-value" id="count-thumbnails">–</div></div>
-        <div class="st-stat"><div class="st-stat-label">Video sumber</div><div class="st-stat-value" id="count-base_video">–</div></div>
+        <div class="st-stat"><div class="st-stat-label">Video sumber</div><div class="st-stat-value" id="count-base_video">–</div><div class="st-help" id="count-base_video-sub"></div></div>
       </div>
       <div id="gallery-sections" class="st-stack"></div>
     </div>
@@ -373,7 +381,7 @@ async function loadChannels() {
     renderChannelList();
     renderChannelSelect();
   } catch (e) {
-    document.getElementById('yt-channel-list').innerHTML = `<tr><td colspan="4" class="st-empty">Gagal memuat channel: ${esc(e.message)}</td></tr>`;
+    document.getElementById('yt-channel-list').innerHTML = `<tr><td colspan="5" class="st-empty">Gagal memuat channel: ${esc(e.message)}</td></tr>`;
   }
 }
 
@@ -393,7 +401,7 @@ function avatar(c) {
 function renderChannelList() {
   const wrap = document.getElementById('yt-channel-list');
   if (!channelsCache.length) {
-    wrap.innerHTML = `<tr><td colspan="4" class="st-empty"><b>Belum ada channel</b>Klik "Tautkan channel" lalu pilih file client_secret.json.</td></tr>`;
+    wrap.innerHTML = `<tr><td colspan="5" class="st-empty"><b>Belum ada channel</b>Klik "Tautkan channel" lalu pilih file client_secret.json.</td></tr>`;
     return;
   }
   wrap.innerHTML = channelsCache.map((c, i) => `
@@ -408,7 +416,13 @@ function renderChannelList() {
           </div>
         </div>
       </td>
-      <td class="hide-sm"><div class="st-mono st-ellipsis" style="max-width:260px" title="${esc(c.client_id || '')}">${c.client_id ? esc(c.client_id) : '—'}</div></td>
+      <td>
+        <select class="st-select mode-sel" aria-label="Mode konten ${esc(c.name)}" onchange="setChannelMode(${i}, this)">
+          <option value="cid" ${c.content_mode !== 'adsense' ? 'selected' : ''}>Content ID</option>
+          <option value="adsense" ${c.content_mode === 'adsense' ? 'selected' : ''}>AdSense</option>
+        </select>
+      </td>
+      <td class="hide-sm"><div class="st-mono st-ellipsis" style="max-width:220px" title="${esc(c.client_id || '')}">${c.client_id ? esc(c.client_id) : '—'}</div></td>
       <td class="hide-sm">${channelStatus(c)}</td>
       <td class="col-actions">
         <div class="st-row-actions">
@@ -419,6 +433,34 @@ function renderChannelList() {
         </div>
       </td>
     </tr>`).join('');
+}
+
+const MODE_INFO = {
+  cid: 'Content ID: background boleh dipakai berulang (diacak bergiliran), audio diambil dari folder Audio CID.',
+  adsense: 'AdSense: setiap background/video sumber hanya dipakai sekali (dipindah ke folder Terpakai), audio diambil dari folder Audio non-CID.',
+};
+
+async function setChannelMode(i, sel) {
+  const c = channelsCache[i];
+  const mode = sel.value;
+  const prev = c.content_mode || 'cid';
+  if (!await confirmDialog(`Ubah mode ${c.name}?`, MODE_INFO[mode] + '\n\nBerlaku untuk render berikutnya. Antrean yang sedang dirender tidak berubah.', 'Ubah mode')) {
+    sel.value = prev;
+    return;
+  }
+  try {
+    const d = await (await fetch('/api/channel_mode', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ yt_id: c.yt_id, mode })
+    })).json();
+    if (d.status !== 'success') throw new Error(d.message);
+    c.content_mode = mode;
+    toast(d.message);
+    if (galleryChannel() === c.yt_id) loadGallery();
+  } catch (e) {
+    sel.value = prev;
+    toast(e.message || 'Gagal mengubah mode', 'error');
+  }
 }
 
 function renderChannelSelect() {
@@ -542,14 +584,16 @@ async function loadGallery() {
   hint.classList.add('hidden');
   content.classList.remove('hidden');
 
-  let counts, gallery;
+  let counts, gallery, pool;
   try {
-    const [countsRes, galleryRes] = await Promise.all([
+    const [countsRes, galleryRes, poolRes] = await Promise.all([
       fetch(`/api/get_asset_counts?yt_id=${encodeURIComponent(yt_id)}`),
-      fetch(`/api/get_gallery?yt_id=${encodeURIComponent(yt_id)}`)
+      fetch(`/api/get_gallery?yt_id=${encodeURIComponent(yt_id)}`),
+      fetch(`/api/asset_pool?yt_id=${encodeURIComponent(yt_id)}`)
     ]);
     counts = await countsRes.json();
     gallery = await galleryRes.json();
+    pool = await poolRes.json();
   } catch (e) {
     toast('Gagal memuat galeri', 'error');
     return;
@@ -562,12 +606,44 @@ async function loadGallery() {
   document.getElementById('count-thumbnails').innerText = counts.thumbnails ?? 0;
   document.getElementById('count-base_video').innerText = counts.base_videos ?? 0;
 
+  const adsense = pool.mode === 'adsense';
+  const folders = pool.folders || {};
+  const modeBox = document.getElementById('gallery-mode');
+  modeBox.innerHTML = `<div><b>Mode ${adsense ? 'AdSense' : 'Content ID'}.</b> ${esc(MODE_INFO[adsense ? 'adsense' : 'cid'])} Mode diubah di tab Channel YouTube.</div>`;
+  for (const [tileId, folder] of [['count-background', 'backgrounds'], ['count-shorts_bg', 'shorts_bg'], ['count-base_video', 'base_videos']]) {
+    const f = folders[folder];
+    const sub = document.getElementById(tileId + '-sub');
+    if (sub) sub.textContent = f && (adsense || f.used) ? `${f.used} terpakai${f.in_use ? ` · ${f.in_use} dipakai` : ''}` : '';
+  }
+
   document.getElementById('gallery-sections').innerHTML = GALLERY_TYPES.map(t => {
     const items = gallery[t.key] || [];
+    const folder = POOL_FOLDER[t.key];
+    const used = folder && folders[folder] ? folders[folder] : null;
+    const usedHtml = used && used.used ? `
+        <details class="used-box">
+          <summary>
+            <span>Terpakai · ${used.used} file${adsense ? '' : ' (dipakai lagi di mode Content ID)'}</span>
+            <span class="st-row" onclick="event.preventDefault()">
+              <button class="st-btn st-btn-sm st-btn-text" onclick="poolAction('restore', '${folder}')">Kembalikan semua</button>
+              <button class="st-btn st-btn-sm st-btn-danger" onclick="poolAction('delete_used', '${folder}')">Hapus semua</button>
+            </span>
+          </summary>
+          <div class="st-list">
+            ${used.used_files.map(f => `
+              <div class="st-list-row">
+                <span class="st-ellipsis" style="flex:1">${esc(f.name)}</span>
+                <span class="st-mono">${esc(f.size)}</span>
+                <button class="st-btn st-btn-sm st-btn-text" data-name="${esc(f.name)}" onclick="poolAction('restore', '${folder}', this.dataset.name)">Kembalikan</button>
+                <button class="st-icon-btn danger" aria-label="Hapus permanen" title="Hapus permanen" data-name="${esc(f.name)}" onclick="poolAction('delete_used', '${folder}', this.dataset.name)">${icon('close')}</button>
+              </div>`).join('')}
+          </div>
+        </details>` : '';
+    const inUse = used && used.in_use ? ` · ${used.in_use} sedang dipakai` : '';
     return `
       <div class="st-card gal-section">
         <div class="st-card-head">
-          <h3 class="st-card-title">${t.label} <span class="st-muted" style="font-weight:400">· ${items.length}</span></h3>
+          <h3 class="st-card-title">${t.label} <span class="st-muted" style="font-weight:400">· ${items.length}${folder && adsense ? ' tersisa' : ''}${inUse}</span></h3>
           <div class="st-row">
             ${items.length ? `<button class="st-btn st-btn-sm st-btn-danger" onclick="clearFolder('${t.type}')">Kosongkan</button>` : ''}
             <button id="btn-up-${t.key}" class="st-btn st-btn-sm gal-progress" onclick="document.getElementById('upload-${t.key}').click()">
@@ -584,9 +660,30 @@ async function loadGallery() {
                 <span class="st-mono">${esc(f.size)}</span>
                 <button class="st-icon-btn danger" aria-label="Hapus file" title="Hapus file" data-name="${esc(f.name)}" onclick="deleteAsset('${t.type}', this.dataset.name)">${icon('close')}</button>
               </div>`).join('')}
-          </div>` : `<div class="st-empty" style="padding:20px">Belum ada file.</div>`}
+          </div>` : `<div class="st-empty" style="padding:20px">${folder && adsense && used && used.used ? 'Stok habis. Upload footage baru atau kembalikan file dari bagian Terpakai.' : 'Belum ada file.'}</div>`}
+        ${usedHtml}
       </div>`;
   }).join('');
+}
+
+const POOL_FOLDER = { background: 'backgrounds', shorts_bg: 'shorts_bg', base_video: 'base_videos' };
+
+async function poolAction(action, folder, name) {
+  const all = !name;
+  if (action === 'delete_used' && !await confirmDialog(all ? 'Hapus semua file terpakai?' : 'Hapus file ini?',
+      'File akan dihapus permanen dari server.', 'Hapus permanen', true)) return;
+  if (action === 'restore' && all && !await confirmDialog('Kembalikan semua ke stok?',
+      'Semua file terpakai akan bisa dipilih lagi, termasuk di channel mode AdSense.', 'Kembalikan')) return;
+  try {
+    const d = await (await fetch('/api/asset_pool/' + action, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ yt_id: galleryChannel(), folder, name: name || null })
+    })).json();
+    toast(d.message, d.status === 'success' ? '' : 'error');
+  } catch (e) {
+    toast('Gagal memproses file', 'error');
+  }
+  loadGallery();
 }
 
 function galleryChannel() {

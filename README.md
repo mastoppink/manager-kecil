@@ -17,6 +17,10 @@ Tampilannya mengikuti gaya YouTube Studio dan bisa dibuka dari browser di laptop
 | **Settings** | Kelola channel, halaman Facebook, galeri aset per channel, bank judul, dan notifikasi Telegram. |
 
 Fitur lain:
+- **Mode konten per channel** (*Settings → Channel YouTube*):
+  - **Content ID:** footage background boleh dipakai berulang (diacak bergiliran supaya tidak kembar berurutan), audio diambil dari folder Audio CID.
+  - **AdSense:** setiap background, background Shorts, dan video sumber hanya dipakai sekali untuk menghindari konten berulang. File yang sudah masuk video yang berhasil dipindah ke subfolder `_terpakai/`; kalau render atau upload gagal, file kembali ke stok. Batch ditolak sejak awal bila stok tidak cukup. Audio diambil dari folder Audio non-CID.
+  - Sisa stok dan file terpakai bisa dilihat, dikembalikan ke stok, atau dihapus di *Settings → Galeri Aset*.
 - **Kuota API per channel.** Setiap channel memakai `client_secret.json` miliknya sendiri, sehingga kuota YouTube API tidak saling berebut. Satu file secret juga boleh dipakai beberapa channel.
 - **Upload bisa dilanjutkan.** Upload yang terputus dilanjutkan dari posisi terakhir.
 - **Cooldown otomatis.** Kalau kuota atau limit upload habis, channel diberi jeda otomatis, dan jeda itu tetap berlaku setelah server restart.

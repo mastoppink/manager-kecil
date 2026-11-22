@@ -17,8 +17,10 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from core.resource_gate import acquire_resource, release_resource
+from core import asset_pool
 from core.json_store import lock_for, read_json, write_json, update_json
 from core.job_state import JobCancelled, cancelled, terminal, channel_id
+from core.job_state import channel_id as channel_id_of
 from core.jobs import cancel_jobs_in, check_job, update_job_in, recover_jobs
 from .render_engine import render_job
 
@@ -86,6 +88,43 @@ def _pick_shorts_background(channel_id, bg_source='shorts_bg'):
     if bg_source == 'auto_crop':
         return _pick_random_asset(channel_id, 'backgrounds') or _pick_random_asset(channel_id, 'shorts_bg')
     return _pick_random_asset(channel_id, 'shorts_bg') or _pick_random_asset(channel_id, 'backgrounds')
+
+
+def _chan_dir(channel_id):
+    return os.path.join(UPLOADS_ROOT, str(channel_id))
+
+
+def _shorts_bg_folder(channel_id, bg_source='shorts_bg'):
+    """Folder footage Shorts. Folder cadangan hanya dipakai bila folder utama memang belum pernah diisi."""
+    primary, fallback = ('backgrounds', 'shorts_bg') if bg_source == 'auto_crop' else ('shorts_bg', 'backgrounds')
+    for folder in (primary, fallback):
+        info = asset_pool.stock_info(_chan_dir(channel_id), folder, asset_pool.BG_EXTS)
+        if info['available'] or info['in_use'] or info['used']:
+            return folder
+    return None
+
+
+def shorts_stock_error(channel_id, bg_source, batch_count):
+    """Pesan error bila aset tidak cukup untuk batch Shorts baru (channel AdSense: footage sekali pakai)."""
+    channel = _get_channel(channel_id) or {}
+    mode = asset_pool.channel_mode(channel)
+    a_folder = asset_pool.audio_folder(mode)
+    if not asset_pool.stock_info(_chan_dir(channel_id), a_folder, asset_pool.AUDIO_EXTS)['available']:
+        return (f"Folder {asset_pool.folder_label(a_folder)} kosong. Channel ini memakai mode "
+                f"{'AdSense' if mode == asset_pool.MODE_ADSENSE else 'Content ID'}, jadi audionya diambil dari folder tersebut.")
+    folder = _shorts_bg_folder(channel_id, bg_source)
+    if not folder:
+        return "Background kosong! Upload dulu ke folder BG Shorts (9:16) di Settings."
+    if mode != asset_pool.MODE_ADSENSE:
+        return None
+    pending = sum(1 for j in read_db()
+                  if channel_id_of(j) == channel_id and not terminal(j)
+                  and not asset_pool.has_lease(_chan_dir(channel_id), f"shorts:{j.get('id')}"))
+    available = asset_pool.stock_info(_chan_dir(channel_id), folder, asset_pool.BG_EXTS)['available']
+    if pending + batch_count > available:
+        return (f"Stok {asset_pool.folder_label(folder)} tidak cukup (mode AdSense, sekali pakai): batch ini butuh "
+                f"{batch_count}, antrean lain butuh {pending}, stok tersisa {available}.")
+    return None
 
 
 def _pick_shorts_audio(channel_id, audio_source='non_cid'):
@@ -383,14 +422,28 @@ def shorts_worker_loop():
                 update_job(job_id, status='Menunggu Resource CPU... ⏳', progress=2, stage='Menunggu slot CPU/RAM...')
                 acquire_resource(worker_name="Shorts Worker", cancelled=lambda: check_cancelled(job_id))
 
+                channel_info = _get_channel(channel_id) or {}
+                content_mode = asset_pool.channel_mode(channel_info)
+                lease_owner = f"shorts:{job_id}"
+                published = False
                 try:
-                    bg_path = opts.get('bgPath') or _pick_shorts_background(channel_id, bg_source)
-                    audio_path = opts.get('audioPath') or _pick_shorts_audio(channel_id, audio_source)
+                    # Footage: mode AdSense sekali pakai, mode Content ID kocok kartu.
+                    bg_path = opts.get('bgPath')
+                    if not bg_path:
+                        bg_folder = _shorts_bg_folder(channel_id, bg_source)
+                        picked = asset_pool.pick(_chan_dir(channel_id), bg_folder, 1, asset_pool.BG_EXTS,
+                                                 content_mode, lease_owner) if bg_folder else []
+                        bg_path = picked[0] if picked else None
+                    # Audio otomatis mengikuti mode channel (AdSense: non-CID, Content ID: CID)
+                    audio_path = opts.get('audioPath')
+                    if not audio_path:
+                        picked_audio = asset_pool.pick_audio(_chan_dir(channel_id), asset_pool.audio_folder(content_mode), 1)
+                        audio_path = picked_audio[0] if picked_audio else None
 
                     if not bg_path:
                         raise Exception("Background kosong! Upload dulu ke folder BG Shorts (9:16) di Settings.")
                     if not audio_path:
-                        raise Exception("Audio kosong! Upload MP3 dulu ke folder Audio Non-CID / CID di Settings.")
+                        raise Exception(f"Audio kosong! Upload MP3 ke folder {asset_pool.folder_label(asset_pool.audio_folder(content_mode))} di Settings (mengikuti mode channel).")
 
                     # Bersihkan judul lagu untuk Floating Card (& untuk judul YT jika mode == 'audio_name')
                     raw_song = os.path.splitext(os.path.basename(audio_path))[0]
@@ -401,7 +454,6 @@ def shorts_worker_loop():
                         job_title = f"🎵 {clean_song} #Shorts"
                         update_job(job_id, title=job_title)
 
-                    channel_info = _get_channel(channel_id) or {}
                     vis_cfg = {
                         "yt_id": channel_id,
                         "channel_thumbnail": channel_info.get('thumbnail', ''),
@@ -466,6 +518,7 @@ def shorts_worker_loop():
                     else:
                         final_status = f"Gagal ❌ ({'; '.join(errors)[:80]})"
 
+                    published = bool(results)
                     update_job(
                         job_id,
                         status=final_status,
@@ -481,6 +534,14 @@ def shorts_worker_loop():
                     update_job(job_id, status=f"Gagal ❌ ({str(e)[:70]})", stage=f'Error: {str(e)}')
 
                 finally:
+                    # Footage masuk folder terpakai hanya bila Shorts berhasil diunggah ke minimal satu platform
+                    try:
+                        if published:
+                            asset_pool.commit(_chan_dir(channel_id), lease_owner)
+                        else:
+                            asset_pool.release(_chan_dir(channel_id), lease_owner)
+                    except Exception as lease_err:
+                        print(f"⚠️ [Shorts Worker] Gagal memperbarui status footage job {job_id}: {lease_err}")
                     release_resource(worker_name="Shorts Worker")
 
         except Exception as main_e:
